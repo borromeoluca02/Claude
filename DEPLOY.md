@@ -1,5 +1,26 @@
 # Collegare l'app al proprio progetto Firebase
 
+## Scorciatoia: uno script fa quasi tutto
+
+```bash
+bash tools/setup-firebase.sh
+```
+
+Accede al tuo account (si apre il browser), sceglie o crea il progetto, registra
+l'app web, scrive `public/js/firebase-config.js` e `.firebaserc`, crea il
+database Firestore e pubblica il sito. Al termine stampa l'indirizzo e l'unica
+cosa che la CLI non può fare: abilitare i metodi di accesso, con il link diretto
+alla pagina giusta.
+
+Opzioni: `bash tools/setup-firebase.sh <project-id>` per saltare la scelta,
+`--no-deploy` per fermarsi prima della pubblicazione, e la variabile
+`FIRESTORE_LOCATION` per cambiare regione (default `eur3`).
+
+Il resto di questa guida è la stessa procedura fatta a mano, utile se qualcosa
+non va o se preferisci passare dalla console.
+
+---
+
 Tutto quello che segue si fa una volta sola. I passaggi 1-4 sono nella console
 Firebase, il 5 collega l'app e il 6 la pubblica online.
 
