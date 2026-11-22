@@ -1,0 +1,84 @@
+<!-- Pagina usata per pubblicare l'anteprima online su claude.ai/artifact.
+     Differisce da public/index.html perché l'ospite fornisce già doctype, head
+     e body, e perché in quel contesto download, stampa e Firebase sono
+     disattivati dal sandbox: da qui l'avviso in fondo alla pagina.
+     Si pubblica con i file di public/css e public/js come file allegati. -->
+<title>Cross Builder</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/svg.css">
+<style>
+  /* avviso dell'anteprima online */
+  .demoBar{
+    position:fixed;left:0;right:0;bottom:0;z-index:60;display:flex;gap:10px;align-items:flex-start;
+    padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px));
+    background:#16202c;color:#dfe8f2;font-size:12.5px;line-height:1.45;
+    box-shadow:0 -2px 12px rgba(16,32,48,.35)
+  }
+  .demoBar b{color:#fff}
+  .demoBar p{margin:0;flex:1;min-width:0}
+  .demoBar button{
+    flex:0 0 auto;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);
+    color:#fff;border-radius:7px;padding:5px 10px;font-size:12.5px
+  }
+  .demoBar button:hover{background:rgba(255,255,255,.26)}
+  body.demo .statusbar{bottom:62px}
+  @media (max-width:860px){ body.demo .statusbar{bottom:104px} body.demo .panel{bottom:56px} }
+</style>
+
+<header class="top">
+  <div class="brand"><span class="logo">⛸</span><span>Cross<b>Builder</b></span></div>
+  <input id="prjName" class="prjName" aria-label="Nome del progetto" placeholder="Nome del percorso">
+  <div class="seg small" id="discSeg">
+    <button class="segb" data-act="discipline:roller">Roller</button>
+    <button class="segb" data-act="discipline:skate">Skate</button>
+  </div>
+  <div class="spacer"></div>
+  <button class="tbtn" data-act="undo" title="Annulla (Ctrl+Z)">↶</button>
+  <button class="tbtn" data-act="redo" title="Ripeti (Ctrl+Shift+Z)">↷</button>
+  <button class="tbtn" data-act="loc.save" title="Salva">💾</button>
+  <button class="tbtn" data-act="exp.png" title="Esporta PNG">🖼</button>
+  <button class="tbtn panelToggle" id="panelToggle" title="Pannello">☰</button>
+</header>
+
+<main>
+  <div class="stage" id="stage">
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+
+    <div class="floatTools">
+      <button class="ft" data-act="view.zoomIn" title="Ingrandisci">＋</button>
+      <button class="ft" data-act="view.zoomOut" title="Riduci">−</button>
+      <button class="ft" data-act="view.fit" title="Inquadra tutto">⤢</button>
+      <button class="ft" data-act="labels.toggle" title="Mostra/nascondi quote">🔠</button>
+      <button class="ft" data-act="snap.toggle" title="Aggancio alla griglia">⊞</button>
+      <button class="ft" data-act="area.toggleEdit" title="Modifica vertici area">◇</button>
+      <button class="ft" data-act="tool:draw" title="Disegna percorso">✏️</button>
+    </div>
+
+    <div class="hintBar" id="hintBar" hidden></div>
+    <div class="statusbar" id="status"></div>
+    <div class="toast" id="toast" hidden></div>
+  </div>
+
+  <aside class="panel" id="panel">
+    <div class="panelGrip" id="panelGrip"></div>
+    <nav class="tabs" id="tabs"></nav>
+    <div class="panelBody" id="panelBody"></div>
+  </aside>
+</main>
+
+<div class="demoBar" id="demoBar">
+  <p><b>Anteprima online.</b> Il configuratore funziona per intero: area, percorso, generazione, verifica di regolamento e anteprima della tavola in scala.
+  In questa pagina protetta restano però disattivati <b>download</b> (PNG, SVG, CSV, JSON), <b>stampa</b> e <b>Firebase</b>.
+  Per quelli serve la versione installata sul proprio dominio.</p>
+  <button type="button" id="demoClose">Ho capito</button>
+</div>
+
+<script src="js/firebase-config.js"></script>
+<script>
+  document.body.classList.add('demo');
+  document.getElementById('demoClose').addEventListener('click', function () {
+    document.getElementById('demoBar').hidden = true;
+    document.body.classList.remove('demo');
+  });
+</script>
+<script type="module" src="js/app.js"></script>

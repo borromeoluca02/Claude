@@ -25,8 +25,10 @@ export function getConfig() {
 }
 
 export function saveConfig(cfg) {
-  if (!cfg) localStorage.removeItem(LS_CFG);
-  else localStorage.setItem(LS_CFG, JSON.stringify(cfg));
+  try {
+    if (!cfg) localStorage.removeItem(LS_CFG);
+    else localStorage.setItem(LS_CFG, JSON.stringify(cfg));
+  } catch (e) { console.warn('Archiviazione non disponibile:', e); }
 }
 
 export function hasFirebase() { return !!fb; }
@@ -95,7 +97,10 @@ export async function signOutUser() {
 function localAll() {
   try { return JSON.parse(localStorage.getItem(LS_PRJ) || '{}'); } catch (e) { return {}; }
 }
-function localWrite(map) { localStorage.setItem(LS_PRJ, JSON.stringify(map)); }
+function localWrite(map) {
+  try { localStorage.setItem(LS_PRJ, JSON.stringify(map)); }
+  catch (e) { console.warn('Salvataggio locale non riuscito:', e); throw new Error('Spazio esaurito o archiviazione non disponibile'); }
+}
 
 export function saveLocal(project) {
   const map = localAll();
@@ -230,11 +235,39 @@ export async function exportPNG(svgEl, W, H, project, scale = 2) {
 
 const stripXml = (svg) => svg.replace(/^<\?xml[^>]*\?>\s*/, '');
 
-/** apre una finestra di stampa con i fogli impaginati a misura reale */
+/** apre una finestra di stampa con i fogli impaginati a misura reale.
+    Se il browser blocca i popup si ripiega su un iframe nascosto. */
 export function printPages(pages, size, title = 'Tavola') {
-  const w = window.open('', '_blank');
-  if (!w) throw new Error('Il browser ha bloccato la finestra di stampa');
-  const html = `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>${title}</title>
+  const html = printHTML(pages, size, title);
+  let w = null;
+  try { w = window.open('', '_blank'); } catch (e) { w = null; }
+  if (w) {
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    return w;
+  }
+  // fallback: iframe fuori schermo, stampa diretta
+  const fr = document.createElement('iframe');
+  fr.setAttribute('aria-hidden', 'true');
+  fr.style.cssText = 'position:fixed;right:0;bottom:0;width:1px;height:1px;opacity:0;border:0';
+  document.body.appendChild(fr);
+  const doc = fr.contentWindow.document;
+  doc.open();
+  doc.write(html.replace(/<script[\s\S]*?<\/script>/g, ''));
+  doc.close();
+  const go = () => {
+    try { fr.contentWindow.focus(); fr.contentWindow.print(); }
+    catch (e) { console.warn(e); }
+    setTimeout(() => fr.remove(), 60000);
+  };
+  if (doc.readyState === 'complete') setTimeout(go, 250);
+  else fr.onload = () => setTimeout(go, 250);
+  return null;
+}
+
+function printHTML(pages, size, title) {
+  return `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>${title}</title>
 <style>
   @page { size: ${size.w}mm ${size.h}mm; margin: 0; }
   html, body { margin: 0; padding: 0; background: #666; }
@@ -247,10 +280,6 @@ export function printPages(pages, size, title = 'Tavola') {
 ${pages.map((p) => `<div class="pg">${stripXml(p.svg)}</div>`).join('')}
 <script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 350); });<\/script>
 </body></html>`;
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
-  return w;
 }
 
 export function downloadSVGText(text, filename) {
