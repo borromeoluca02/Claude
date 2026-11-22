@@ -1,0 +1,37 @@
+# Pubblicazione automatica su Firebase Hosting a ogni push.
+#
+# Serve un solo segreto nel repository (Settings → Secrets and variables →
+# Actions → New repository secret):
+#   FIREBASE_SERVICE_ACCOUNT  → il contenuto del file JSON dell'account di
+#                               servizio (Console Firebase → Impostazioni
+#                               progetto → Account di servizio → Genera nuova
+#                               chiave privata)
+#   FIREBASE_PROJECT_ID       → l'ID del progetto Firebase (non il nome)
+#
+# In alternativa: `npx firebase-tools init hosting:github` configura da solo
+# il segreto e questo file.
+
+name: Deploy su Firebase Hosting
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scarica il repository
+        uses: actions/checkout@v4
+
+      - name: Pubblica su Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: ${{ secrets.FIREBASE_PROJECT_ID }}
+          channelId: live
