@@ -226,6 +226,55 @@ export async function exportPNG(svgEl, W, H, project, scale = 2) {
   } finally { URL.revokeObjectURL(url); }
 }
 
+/* ------------------------------------------------------------- tavole */
+
+const stripXml = (svg) => svg.replace(/^<\?xml[^>]*\?>\s*/, '');
+
+/** apre una finestra di stampa con i fogli impaginati a misura reale */
+export function printPages(pages, size, title = 'Tavola') {
+  const w = window.open('', '_blank');
+  if (!w) throw new Error('Il browser ha bloccato la finestra di stampa');
+  const html = `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>${title}</title>
+<style>
+  @page { size: ${size.w}mm ${size.h}mm; margin: 0; }
+  html, body { margin: 0; padding: 0; background: #666; }
+  .pg { width: ${size.w}mm; height: ${size.h}mm; background: #fff; overflow: hidden;
+        page-break-after: always; break-after: page; margin: 0 auto 8mm; box-shadow: 0 0 6px rgba(0,0,0,.4); }
+  .pg:last-child { page-break-after: auto; break-after: auto; margin-bottom: 0; }
+  .pg svg { display: block; width: 100%; height: 100%; }
+  @media print { body { background: #fff; } .pg { box-shadow: none; margin: 0; } }
+</style></head><body>
+${pages.map((p) => `<div class="pg">${stripXml(p.svg)}</div>`).join('')}
+<script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 350); });<\/script>
+</body></html>`;
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  return w;
+}
+
+export function downloadSVGText(text, filename) {
+  downloadBlob(new Blob([text], { type: 'image/svg+xml' }), filename);
+}
+
+/** rasterizza un foglio SVG in mm alla risoluzione richiesta */
+export async function pngFromSheet(svgText, size, dpi = 200) {
+  const px = (mm) => Math.round((mm / 25.4) * dpi);
+  const W = px(size.w), H = px(size.h);
+  const sized = stripXml(svgText).replace(/width="[\d.]+mm" height="[\d.]+mm"/, `width="${W}" height="${H}"`);
+  const url = URL.createObjectURL(new Blob([sized], { type: 'image/svg+xml;charset=utf-8' }));
+  try {
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+    ctx.drawImage(img, 0, 0, W, H);
+    return await new Promise((res) => c.toBlob(res, 'image/png'));
+  } finally { URL.revokeObjectURL(url); }
+}
+
 /** distinta delle strutture in CSV */
 export function exportCSV(project, analysis) {
   const rows = [['#', 'Struttura', 'Altezza (m)', 'Lunghezza (m)', 'Larghezza (m)', 'Progressiva (m)', 'Scostamento (m)', 'Distanza dal precedente (m)', 'Stato']];

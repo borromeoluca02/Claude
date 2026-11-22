@@ -159,6 +159,11 @@ export function createProject(opts = {}) {
       strategy: 'auto',
       seedCount: 6,
     },
+    plate: {
+      sheet: 'A3', orientation: 'landscape', scale: 'auto',
+      grid: false, stationStep: 25, schedule: true, compliance: true,
+      organization: '', location: '', author: '', surface: '', date: '', notes: '',
+    },
     view: null,
   };
 }
@@ -215,6 +220,7 @@ export function normalizeProject(raw) {
   out.startGate = { ...DEFAULT_START_GATE, ...(raw.startGate || {}) };
   out.startRamp = { ...DEFAULT_START_RAMP, ...(raw.startRamp || {}) };
   out.genParams = { ...p.genParams, ...(raw.genParams || {}) };
+  out.plate = { ...p.plate, ...(raw.plate || {}) };
 
   const a = raw.area || {};
   const pts = Array.isArray(a.points) && a.points.length >= 3

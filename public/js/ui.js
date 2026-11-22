@@ -5,6 +5,7 @@ import * as G from './geometry.js';
 import { STRUCTURE_LIBRARY, GROUP_LABELS } from './model.js';
 import { ROLLER, SKATE, CATEGORIES, categoryInfo, REG_SOURCE } from './regulation.js';
 import { fmt, fmtM, thumbSVG } from './render.js';
+import { buildPlateSet, autoScale, sheetSize, SHEETS, SCALES } from './plate.js';
 
 /* ------------------------------------------------- lettura/scrittura path */
 
@@ -58,6 +59,7 @@ export const TABS = [
   ['auto', 'Genera'],
   ['rules', 'Regole'],
   ['check', 'Verifica'],
+  ['plate', 'Tavola'],
   ['cloud', 'Cloud'],
 ];
 
@@ -85,6 +87,7 @@ export function panelHTML(state) {
     case 'auto': return autoPanel(state);
     case 'rules': return rulesPanel(state);
     case 'check': return checkPanel(state);
+    case 'plate': return platePanel(state);
     case 'cloud': return cloudPanel(state);
     default: return '';
   }
@@ -489,6 +492,70 @@ function checkPanel(state) {
     <div class="row">
       ${btn('exp.png', 'PNG')}${btn('exp.svg', 'SVG')}${btn('exp.csv', 'Distinta CSV')}${btn('exp.json', 'Progetto JSON')}
     </div>
+  </section>`;
+}
+
+/* ---------------------------------------------------------------- TAVOLA */
+
+function ta(labelTxt, bind, value, rows = 3) {
+  return `<label class="fld area"><span>${e(labelTxt)}</span><textarea data-bind="${bind}" rows="${rows}">${e(value || '')}</textarea></label>`;
+}
+
+function platePanel(state) {
+  const pl = state.project.plate;
+  const auto = autoScale(state.project, pl.sheet, pl.orientation);
+  const scale = pl.scale === 'auto' ? auto : +pl.scale;
+  const size = sheetSize(pl.sheet, pl.orientation);
+  const b = G.polygonBounds(state.project.area.points);
+  const wmm = (b.w * 1000) / scale, hmm = (b.h * 1000) / scale;
+  let preview = '', pages = 1, fits = true;
+  try {
+    const set = buildPlateSet(state.project, state.analysis, pl);
+    preview = set.pages[0].svg.replace(/^<\?xml[^>]*\?>\s*/, '');
+    pages = set.pages.length;
+    fits = set.fits;
+  } catch (err) {
+    preview = `<p class="hint cBad">Anteprima non disponibile: ${e(err.message)}</p>`;
+  }
+
+  return `
+  <section class="grp">
+    <h3>Foglio e scala</h3>
+    <div class="flds">
+      ${sel('Formato', 'plate.sheet', pl.sheet, Object.keys(SHEETS).map((k) => [k, `${k} (${SHEETS[k][0]}×${SHEETS[k][1]} mm)`]))}
+      ${sel('Orientamento', 'plate.orientation', pl.orientation, [['landscape', 'Orizzontale'], ['portrait', 'Verticale']])}
+      ${sel('Scala', 'plate.scale', pl.scale, [['auto', `Automatica (1:${auto})`], ...SCALES.map((s) => [String(s), `1:${s}`])])}
+      ${num('Progressive ogni', 'plate.stationStep', pl.stationStep, { step: 5, min: 0, hint: '0 = nessuna' })}
+    </div>
+    <p class="hint">Foglio ${fmt(size.w, 0)}×${fmt(size.h, 0)} mm · a <b>1:${scale}</b> l'area di ${fmtM(b.w, 1)}×${fmtM(b.h, 1)} occupa <b>${fmt(wmm, 0)}×${fmt(hmm, 0)} mm</b>.
+    ${fits ? 'Stampando al 100% le misure sul foglio sono in scala.' : '<b class="cBad">A questa scala il disegno non entra nel foglio: scegli una scala più piccola o un formato più grande.</b>'}</p>
+    ${chk('Griglia metrica di riferimento', 'plate.grid', pl.grid)}
+    ${chk('Includi la distinta degli ostacoli', 'plate.schedule', pl.schedule !== false)}
+    ${chk('Includi la verifica di conformità', 'plate.compliance', pl.compliance !== false)}
+  </section>
+  <section class="grp">
+    <h3>Cartiglio</h3>
+    <div class="flds">
+      ${txt('Organizzazione', 'plate.organization', pl.organization, { ph: 'A.S.D. ...' })}
+      ${txt('Località', 'plate.location', pl.location, { ph: 'Campo, città' })}
+      ${txt('Redatto da', 'plate.author', pl.author)}
+      ${txt('Data', 'plate.date', pl.date, { ph: 'oggi' })}
+      ${txt('Pavimentazione', 'plate.surface', pl.surface, { ph: 'asfalto, cemento…' })}
+    </div>
+    ${ta('Note', 'plate.notes', pl.notes)}
+  </section>
+  <section class="grp">
+    <h3>Produci la tavola <span class="dim">${pages} fogli</span></h3>
+    <div class="row">
+      ${btn('plate.print', '🖨 Stampa / PDF', 'primary')}
+      ${btn('plate.svg', 'SVG')}
+      ${btn('plate.png', 'PNG 200 dpi')}
+    </div>
+    <p class="hint">Per il PDF in scala: <b>Stampa → Salva come PDF</b>, formato ${pl.sheet} ${pl.orientation === 'portrait' ? 'verticale' : 'orizzontale'}, margini <b>nessuno</b> e scala <b>100%</b> (non "adatta alla pagina").</p>
+  </section>
+  <section class="grp">
+    <h3>Anteprima foglio 1</h3>
+    <div class="platePrev">${preview}</div>
   </section>`;
 }
 

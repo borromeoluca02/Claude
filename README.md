@@ -110,6 +110,31 @@ obiettivo punta all'intervallo 250–300 m, alterna le curve per averne almeno 2
 per lato, lascia il tratto di arrivo e distribuisce gli ostacoli coprendo le
 quote dei tre gruppi.
 
+### Tavola in scala con cartiglio
+La scheda *Tavola* produce l'elaborato da allegare al programma di gara, nel
+formato che il regolamento chiede ("planimetria quotata o in scala metrica,
+completa di ostacoli e relative specifiche", Art. 65.3):
+
+* **Foglio** A4 → A0, orizzontale o verticale, e **scala** 1:50 → 1:2000 oppure
+  automatica (sceglie la più grande che fa stare l'area nel foglio). Il disegno
+  è costruito in millimetri: stampato al 100% le misure sono in scala reale.
+* **Foglio 1 — planimetria**: area quotata lato per lato, corridoio di gara,
+  asse, griglia o rampa di partenza, ostacoli numerati, progressive ogni 25 m
+  (passo regolabile), sviluppo dell'asse, scala grafica e griglia metrica
+  opzionale.
+* **Foglio 2 — distinta degli ostacoli**: la sequenza di percorrenza con tipo,
+  gruppo, progressive di inizio e fine, distanza dal precedente, dimensioni,
+  altezza ed esito del controllo. Le curve sono incluse, perché contano come
+  ostacoli.
+* **Foglio 3 — verifica di conformità**: tutti i controlli con esito, valore
+  rilevato e articolo di riferimento, più le segnalazioni e le note.
+* **Cartiglio** su ogni foglio: disciplina, nome e località, dati del tracciato,
+  categoria, pavimentazione, esito della verifica, scala, formato, data,
+  redattore, organizzazione e numero di foglio.
+* Uscite: **Stampa / PDF** (apre i fogli impaginati a misura reale: da lì
+  *Salva come PDF* con margini «nessuno» e scala **100%**, senza «adatta alla
+  pagina»), **SVG** (un file per foglio, vettoriale) e **PNG a 200 dpi**.
+
 ### Salvataggio ed export
 * Salvataggio automatico nel browser a ogni modifica, più l'elenco dei progetti
   salvati in locale.
@@ -202,6 +227,7 @@ public/
   js/track.js             geometria del tracciato, ostacoli, validazione
   js/generator.js         generazione automatica delle varianti
   js/render.js            disegno SVG (quote, colori, miniature)
+  js/plate.js             tavola in scala: fogli in mm, cartiglio, distinta
   js/interact.js          pan, zoom, pinch, trascinamenti, strumento disegno
   js/ui.js                pannelli dell'interfaccia
   js/store.js             Firebase, salvataggio locale, import/export
@@ -233,5 +259,5 @@ dell'area, cambio disciplina, undo/redo ed export, e segnala eventuali errori JS
 | Ctrl/⌘ + Shift + Z | ripeti |
 | Canc / Backspace | elimina l'elemento o la struttura selezionata |
 | Esc | esce dallo strumento attivo |
-| rotella / pinch | zoom | 
+| rotella / pinch | zoom |
 | trascinamento su area vuota | sposta la vista |

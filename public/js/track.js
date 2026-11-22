@@ -308,11 +308,11 @@ export function analyze(project) {
     st.prevLabel = prevLabel;
     st.fromStart = fromStart;
     if (gap < minGap - 1e-6) {
-      setStatus(ob.id, 'bad', `Distanza da "${prevLabel}" di ${n2(gap, 2)} m: sotto il minimo di ${minGap} m`);
-      issues.push({ level: 'bad', target: ob.id, text: `${ob.label}: solo ${n2(gap, 2)} m da ${prevLabel} (min ${minGap} m)` });
+      setStatus(ob.id, 'bad', `Distanza da "${prevLabel}" di ${n2(gap, 2)} m: sotto il minimo di ${n2(minGap)} m`);
+      issues.push({ level: 'bad', target: ob.id, text: `${ob.label}: solo ${n2(gap, 2)} m da ${prevLabel} (min ${n2(minGap)} m)` });
     } else if (gap > rules.maxGap + 1e-6) {
-      setStatus(ob.id, 'bad', `Distanza da "${prevLabel}" di ${n2(gap, 2)} m: oltre il massimo di ${rules.maxGap} m`);
-      issues.push({ level: 'bad', target: ob.id, text: `${ob.label}: ${n2(gap, 2)} m da ${prevLabel} (max ${rules.maxGap} m)` });
+      setStatus(ob.id, 'bad', `Distanza da "${prevLabel}" di ${n2(gap, 2)} m: oltre il massimo di ${n2(rules.maxGap)} m`);
+      issues.push({ level: 'bad', target: ob.id, text: `${ob.label}: ${n2(gap, 2)} m da ${prevLabel} (max ${n2(rules.maxGap)} m)` });
     }
     if (ob.offTrack) {
       setStatus(ob.id, 'warn', 'Struttura lontana dall\'asse del percorso');
@@ -326,8 +326,8 @@ export function analyze(project) {
   if (lastObstacle && rules.finishMin > 0) {
     const d = baked.totalLength - lastObstacle.sEnd;
     if (d < rules.finishMin - 1e-6) {
-      setStatus(lastObstacle.id, 'bad', `Distanza dall'arrivo di ${n2(d, 2)} m: sotto il minimo di ${rules.finishMin} m`);
-      issues.push({ level: 'bad', target: lastObstacle.id, text: `${lastObstacle.label}: ${n2(d, 2)} m dall'arrivo (min ${rules.finishMin} m)` });
+      setStatus(lastObstacle.id, 'bad', `Distanza dall'arrivo di ${n2(d, 2)} m: sotto il minimo di ${n2(rules.finishMin)} m`);
+      issues.push({ level: 'bad', target: lastObstacle.id, text: `${lastObstacle.label}: ${n2(d, 2)} m dall'arrivo (min ${n2(rules.finishMin)} m)` });
     }
   }
 
@@ -337,15 +337,15 @@ export function analyze(project) {
     const w0 = el.widthStart, w1 = el.widthEnd;
     minW = Math.min(minW, w0, w1); maxW = Math.max(maxW, w0, w1);
     if (Math.min(w0, w1) < rules.minWidth - 1e-6) {
-      setStatus(el.id, 'bad', `Larghezza ${n2(Math.min(w0, w1), 2)} m sotto il minimo di ${rules.minWidth} m`);
-      issues.push({ level: 'bad', target: el.id, text: `Tratto largo ${n2(Math.min(w0, w1), 2)} m (min ${rules.minWidth} m)` });
+      setStatus(el.id, 'bad', `Larghezza ${n2(Math.min(w0, w1), 2)} m sotto il minimo di ${n2(rules.minWidth)} m`);
+      issues.push({ level: 'bad', target: el.id, text: `Tratto largo ${n2(Math.min(w0, w1), 2)} m (min ${n2(rules.minWidth)} m)` });
     } else setStatus(el.id, 'ok');
     if (Math.max(w0, w1) > rules.maxWidth + 1e-6) {
-      setStatus(el.id, 'warn', `Larghezza ${n2(Math.max(w0, w1), 2)} m oltre la nominale di ${rules.maxWidth} m`);
+      setStatus(el.id, 'warn', `Larghezza ${n2(Math.max(w0, w1), 2)} m oltre la nominale di ${n2(rules.maxWidth)} m`);
     }
     if (el.type === 'arc' && rules.minRadius > 0 && el.radius < rules.minRadius - 1e-6) {
-      setStatus(el.id, 'bad', `Raggio ${n2(el.radius, 2)} m sotto il minimo di ${rules.minRadius} m`);
-      issues.push({ level: 'bad', target: el.id, text: `Curva R${n2(el.radius, 2)} sotto il raggio minimo (${rules.minRadius} m)` });
+      setStatus(el.id, 'bad', `Raggio ${n2(el.radius, 2)} m sotto il minimo di ${n2(rules.minRadius)} m`);
+      issues.push({ level: 'bad', target: el.id, text: `Curva R${n2(el.radius, 2)} sotto il raggio minimo (${n2(rules.minRadius)} m)` });
     }
   }
   if (!baked.elements.length) { minW = project.track.defaultWidth; maxW = minW; }

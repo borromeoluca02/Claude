@@ -218,3 +218,11 @@ code{background:#eef2f7;border-radius:4px;padding:1px 4px;font-size:12px}
 .seg.col{flex-direction:column}
 .seg.col .segb{text-align:left;padding:8px 10px}
 .iss b{margin-right:4px}
+
+/* anteprima della tavola */
+.platePrev{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+.platePrev svg{display:block;width:100%;height:auto}
+.fld.area{grid-column:1/-1;flex-direction:column;align-items:stretch;gap:4px}
+.fld.area span{font-size:11.5px}
+.fld.area textarea{border:0;background:transparent;resize:vertical;font-family:inherit;font-size:13px;padding:0}
+.fld.area textarea:focus{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}

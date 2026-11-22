@@ -12,6 +12,7 @@ import { render, fitView, toScreen, fmtM, fmt } from './render.js';
 import { attachInteractions } from './interact.js';
 import { panelHTML, tabsHTML, statusHTML, getPath, setPath } from './ui.js';
 import * as store from './store.js';
+import { buildPlateSet } from './plate.js';
 
 const $ = (s) => document.querySelector(s);
 const canvas = $('#canvas');
@@ -483,6 +484,34 @@ const actions = {
   /* --- regole --- */
   'rules.reset': () => { state.project.rules = { ...DEFAULT_RULES }; commit(); },
   'start.preset': () => { state.project.startGate = { ...DEFAULT_START_GATE }; commit(); },
+
+  /* --- tavola in scala --- */
+  'plate.print': () => {
+    try {
+      const set = buildPlateSet(state.project, state.analysis, state.project.plate);
+      store.printPages(set.pages, set.size, state.project.name || 'Tavola');
+      toast(`${set.pages.length} fogli pronti per la stampa (scala 1:${set.scale})`);
+    } catch (err) { toast(err.message, true); }
+  },
+  'plate.svg': () => {
+    const set = buildPlateSet(state.project, state.analysis, state.project.plate);
+    const base = (state.project.name || 'percorso').replace(/[^\w\-]+/g, '_');
+    set.pages.forEach((pg, i) => {
+      setTimeout(() => store.downloadSVGText(pg.svg, `${base}_tav${i + 1}_${pg.name}_1-${set.scale}.svg`), i * 350);
+    });
+    toast(`${set.pages.length} fogli SVG in scala 1:${set.scale}`);
+  },
+  'plate.png': async () => {
+    const set = buildPlateSet(state.project, state.analysis, state.project.plate);
+    const base = (state.project.name || 'percorso').replace(/[^\w\-]+/g, '_');
+    toast('Esporto i fogli…');
+    for (let i = 0; i < set.pages.length; i++) {
+      const blob = await store.pngFromSheet(set.pages[i].svg, set.size, 200);
+      store.downloadBlob(blob, `${base}_tav${i + 1}_${set.pages[i].name}_1-${set.scale}.png`);
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    toast(`${set.pages.length} fogli PNG a 200 dpi`);
+  },
 
   /* --- esportazioni --- */
   'exp.png': async () => { await store.exportPNG(canvas, state.W, state.H, state.project, 2); toast('PNG esportato'); },

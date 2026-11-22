@@ -39,11 +39,11 @@ log('START', await d.evaluate(() => {
   };
 }));
 
-await d.click('[data-act="tab:check"]'); await d.waitForTimeout(250);
+await d.click('.tab[data-act="tab:check"]'); await d.waitForTimeout(250);
 await d.screenshot({ path: `${OUT}/02-desktop-check.png` });
 
 /* ---- generazione automatica con parametri ---- */
-await d.click('[data-act="tab:auto"]'); await d.waitForTimeout(200);
+await d.click('.tab[data-act="tab:auto"]'); await d.waitForTimeout(200);
 await d.fill('input[data-bind="genParams.targetLength"]', '220');
 await d.dispatchEvent('input[data-bind="genParams.targetLength"]', 'change');
 await d.waitForTimeout(200);
@@ -83,7 +83,7 @@ await d.evaluate(() => {
   s.project.track.start = { x: 6, y: 6, heading: 0 };
   window.__commit();
 });
-await d.click('[data-act="tab:track"]'); await d.waitForTimeout(150);
+await d.click('.tab[data-act="tab:track"]'); await d.waitForTimeout(150);
 await d.click('[data-act="tool:draw"]'); await d.waitForTimeout(150);
 const box = await d.locator('#canvas').boundingBox();
 for (const [fx, fy] of [[0.45, 0.35], [0.62, 0.62], [0.36, 0.74], [0.22, 0.45]]) {
@@ -99,8 +99,8 @@ await d.screenshot({ path: `${OUT}/05-desktop-draw.png` });
 await d.click('[data-act="tool:none"]');
 
 /* ---- struttura toccando la mappa + verifica colore distanze ---- */
-await d.click('[data-act="tab:structures"]'); await d.waitForTimeout(150);
-await d.click('[data-act="st.pick:rampa"]'); await d.waitForTimeout(150);
+await d.click('.tab[data-act="tab:structures"]'); await d.waitForTimeout(150);
+await d.click('[data-act="st.pick:dritta200"]'); await d.waitForTimeout(150);
 await d.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.42);
 await d.waitForTimeout(400);
 await d.click('[data-act="tool:none"]');
@@ -147,7 +147,7 @@ log('NARROW', await d.evaluate(() => ({
 await d.screenshot({ path: `${OUT}/07-desktop-narrow.png` });
 
 /* ---- area irregolare: trascino un vertice ---- */
-await d.click('[data-act="tab:area"]'); await d.waitForTimeout(150);
+await d.click('.tab[data-act="tab:area"]'); await d.waitForTimeout(150);
 await d.click('[data-act="area.toggleEdit"]'); await d.waitForTimeout(250);
 const nv = await d.locator('circle.vtx').count();
 if (nv > 2) {
@@ -168,7 +168,7 @@ await d.screenshot({ path: `${OUT}/08-desktop-area.png` });
 await d.click('[data-act="area.toggleEdit"]');
 
 /* ---- skate cross ---- */
-await d.click('[data-act="tab:start"]'); await d.waitForTimeout(150);
+await d.click('.tab[data-act="tab:start"]'); await d.waitForTimeout(150);
 await d.click('[data-act="discipline:skate"]'); await d.waitForTimeout(450);
 log('SKATE', await d.evaluate(() => ({
   disc: window.__state.project.discipline,
@@ -188,7 +188,7 @@ await d.click('[data-act="view.fit"]');
 
 /* ---- export PNG (verifica che non lanci) ---- */
 const dl = d.waitForEvent('download', { timeout: 15000 }).catch(() => null);
-await d.click('[data-act="tab:check"]'); await d.waitForTimeout(200);
+await d.click('.tab[data-act="tab:check"]'); await d.waitForTimeout(200);
 await d.click('[data-act="exp.png"]');
 const got = await dl;
 log('EXPORT-PNG', got ? got.suggestedFilename() : 'nessun download');
@@ -200,9 +200,9 @@ await m.waitForTimeout(600);
 await m.screenshot({ path: `${OUT}/20-mobile-start.png` });
 await m.click('#panelToggle'); await m.waitForTimeout(400);
 await m.screenshot({ path: `${OUT}/21-mobile-panel.png` });
-await m.click('[data-act="tab:structures"]'); await m.waitForTimeout(400);
+await m.click('.tab[data-act="tab:structures"]'); await m.waitForTimeout(400);
 await m.screenshot({ path: `${OUT}/22-mobile-structures.png` });
-await m.click('[data-act="tab:auto"]'); await m.waitForTimeout(300);
+await m.click('.tab[data-act="tab:auto"]'); await m.waitForTimeout(300);
 await m.screenshot({ path: `${OUT}/23-mobile-auto.png` });
 log('MOBILE', await m.evaluate(() => ({
   w: innerWidth, h: innerHeight,
@@ -215,6 +215,33 @@ await m.click('#panelToggle'); await m.waitForTimeout(300);
 await m.touchscreen.tap(200, 300);
 await m.waitForTimeout(200);
 await m.screenshot({ path: `${OUT}/24-mobile-canvas.png` });
+
+/* ---- tavola in scala ---- */
+await d.click('.tab[data-act="tab:plate"]'); await d.waitForTimeout(900);
+log('TAVOLA', await d.evaluate(() => ({
+  anteprima: !!document.querySelector('.platePrev svg'),
+  viewBox: (document.querySelector('.platePrev svg') || {}).getAttribute
+    ? document.querySelector('.platePrev svg').getAttribute('viewBox') : null,
+  scala: window.__state.project.plate.scale,
+})));
+await d.screenshot({ path: `${OUT}/11-desktop-tavola.png` });
+const dls = [];
+d.on('download', (x) => dls.push(x.suggestedFilename()));
+await d.click('[data-act="plate.svg"]');
+await d.waitForTimeout(2200);
+log('TAVOLA-SVG', dls);
+const [popup] = await Promise.all([
+  d.waitForEvent('popup', { timeout: 8000 }).catch(() => null),
+  d.click('[data-act="plate.print"]'),
+]);
+if (popup) {
+  await popup.waitForTimeout(1000);
+  log('STAMPA', await popup.evaluate(() => ({
+    fogli: document.querySelectorAll('.pg').length,
+    mm: getComputedStyle(document.querySelector('.pg')).width,
+  })));
+  await popup.close();
+} else log('STAMPA', 'popup bloccato');
 
 console.log('\n--- ERRORI JS ---');
 console.log(errors.length ? errors.join('\n') : 'nessuno');
