@@ -2,7 +2,8 @@
    gli eventi sono gestiti per delega in app.js tramite data-act / data-bind. */
 
 import * as G from './geometry.js';
-import { STRUCTURE_LIBRARY } from './model.js';
+import { STRUCTURE_LIBRARY, GROUP_LABELS } from './model.js';
+import { ROLLER, SKATE, CATEGORIES, categoryInfo, REG_SOURCE } from './regulation.js';
 import { fmt, fmtM, thumbSVG } from './render.js';
 
 /* ------------------------------------------------- lettura/scrittura path */
@@ -222,9 +223,31 @@ function trackPanel(state) {
 function structPanel(state) {
   const p = state.project;
   const st = state.analysis.status;
-  const lib = STRUCTURE_LIBRARY.map((s) =>
-    `<button class="libb${state.tool === 'add:' + s.key ? ' on' : ''}" data-act="st.pick:${s.key}" title="${e(s.name)} ${s.length}×${s.width} m, h ${s.height} m">
-      <b>${e(s.name)}</b><i>${fmt(s.length, 1)}×${fmt(s.width, 1)} · h ${fmt(s.height, 2)}</i></button>`).join('');
+  const groups = ['gimkane', 'barriere', 'rampe', 'altro'];
+  const counts = { gimkane: 0, barriere: 0, rampe: 0, altro: 0 };
+  const rampTypes = new Set();
+  for (const s of p.structures) {
+    const g = s.group || 'altro';
+    if (counts[g] !== undefined) counts[g]++;
+    if (g === 'rampe') rampTypes.add(s.key);
+  }
+  const need = p.discipline === 'roller'
+    ? { gimkane: ROLLER.groups.gimkane, barriere: ROLLER.groups.barriere, rampe: ROLLER.groups.rampe }
+    : {};
+
+  const lib = groups.map((g) => {
+    const items = STRUCTURE_LIBRARY.filter((s) => s.group === g);
+    if (!items.length) return '';
+    const q = need[g];
+    const head = `<div class="libHead">${e(GROUP_LABELS[g])}` +
+      (q ? ` <span class="${counts[g] >= q ? 'cOk' : 'cBad'}">${counts[g]}/${q}</span>` : '') +
+      (g === 'rampe' && q ? ` <span class="dim">· ${rampTypes.size}/${ROLLER.groups.rampeTipologie} tipologie</span>` : '') +
+      `</div>`;
+    const btns = items.map((s) =>
+      `<button class="libb${state.tool === 'add:' + s.key ? ' on' : ''}" data-act="st.pick:${s.key}" title="${e(s.note || s.name)}">
+        <b>${e(s.name)}</b><i>${fmt(s.length, 2)}×${fmt(s.width, 2)} · h ${fmt(s.height, 2)}</i></button>`).join('');
+    return head + `<div class="lib">${btns}</div>`;
+  }).join('');
 
   const list = p.structures
     .map((s, i) => ({ s, i }))
@@ -233,16 +256,19 @@ function structPanel(state) {
       const info = st[s.id] || { level: 'ok' };
       const selCls = state.selection && state.selection.id === s.id ? ' sel' : '';
       const reasons = (info.reasons || []).map((r) => `<li>${e(r)}</li>`).join('');
+      const libIt = STRUCTURE_LIBRARY.find((x) => x.key === s.key);
       return `<div class="elCard ${info.level}${selCls}" data-st="${s.id}">
         <div class="elHead"><b>${e(s.name)}</b>
+          <span class="badge">${e(GROUP_LABELS[s.group] || 'Altro')}</span>
           <span class="dim">prog. ${fmt(s.station, 1)} m${info.gap != null ? ` · Δ ${fmt(info.gap, 2)} m da ${e(info.prevLabel || '—')}` : ''}</span>
           ${badge(info.level, info.level === 'bad' ? 'posizione non valida' : info.level === 'warn' ? 'da verificare' : 'ok')}
         </div>
+        ${libIt && libIt.note ? `<p class="hint small">${e(libIt.note)}</p>` : ''}
         <div class="flds">
           ${txt('Nome', `structures.${i}.name`, s.name)}
-          ${num('Altezza', `structures.${i}.height`, s.height, { step: 0.1 })}
-          ${num('Lunghezza', `structures.${i}.length`, s.length, { step: 0.25, min: 0.2 })}
-          ${num('Larghezza', `structures.${i}.width`, s.width, { step: 0.25, min: 0.2 })}
+          ${num('Altezza', `structures.${i}.height`, s.height, { step: 0.05 })}
+          ${num('Lunghezza', `structures.${i}.length`, s.length, { step: 0.1, min: 0.2 })}
+          ${num('Larghezza', `structures.${i}.width`, s.width, { step: 0.1, min: 0.2 })}
           ${s.mode === 'path'
           ? num('Progressiva', `structures.${i}.station`, s.station, { step: 0.5 }) + num('Scostamento', `structures.${i}.side`, s.side, { step: 0.25 })
           : num('X', `structures.${i}.x`, s.x, { step: 0.5 }) + num('Y', `structures.${i}.y`, s.y, { step: 0.5 })}
@@ -261,16 +287,16 @@ function structPanel(state) {
 
   return `
   <section class="grp">
-    <h3>Libreria</h3>
-    <div class="lib">${lib}</div>
+    <h3>Libreria ostacoli <span class="dim">${p.discipline === 'roller' ? 'Art. 64' : 'Art. 102'}</span></h3>
+    ${lib}
     <p class="hint">${state.tool && state.tool.startsWith('add:')
       ? 'Tocca la mappa per posizionare la struttura. Tocca di nuovo la voce della libreria per annullare.'
-      : 'Scegli una struttura e poi tocca la mappa dove vuoi metterla. Dentro ogni sagoma vedi nome e altezza, sui lati le dimensioni.'}</p>
-    <div class="row">${btn('st.auto', 'Piazza automaticamente nei tratti liberi', 'primary')}${btn('st.clear', 'Rimuovi tutte', 'danger')}</div>
+      : 'Scegli un ostacolo e poi tocca la mappa. Dentro ogni sagoma vedi nome e altezza, sui lati le dimensioni. Le quote sono quelle dell\'Allegato 3 (indicative) e restano modificabili.'}</p>
+    <div class="row">${btn('st.auto', 'Piazza automaticamente', 'primary')}${btn('st.clear', 'Rimuovi tutte', 'danger')}</div>
   </section>
   <section class="grp">
-    <h3>Strutture <span class="dim">${p.structures.length}</span></h3>
-    ${list || '<p class="hint">Ancora nessuna struttura.</p>'}
+    <h3>Ostacoli sul percorso <span class="dim">${p.structures.length}</span></h3>
+    ${list || '<p class="hint">Ancora nessun ostacolo.</p>'}
   </section>`;
 }
 
@@ -288,8 +314,15 @@ function startPanel(state) {
       <button class="segb${!isRoller ? ' on' : ''}" data-act="discipline:skate">Skate cross</button>
     </div>
     <p class="hint">${isRoller
-      ? 'Roller cross: griglia con box di partenza e corsie guidate dopo la linea.'
-      : 'Skate cross: la partenza è sulla rampa, quindi non servono box né corsie.'}</p>
+      ? 'Roller cross (Art. 65): griglia con box di partenza e corsie guidate dopo la linea.'
+      : 'Skate cross (Art. 102): 4 gate su rampa di partenza alta al massimo 2 m.'}</p>
+  </section>
+  <section class="grp">
+    <h3>Categoria</h3>
+    <div class="seg col">
+      ${CATEGORIES.map((c) => `<button class="segb${p.category === c.key ? ' on' : ''}" data-act="cat:${c.key}">${e(c.label)}</button>`).join('')}
+    </div>
+    <p class="hint">Determina le altezze normate: salti a secco <b>${fmt(categoryInfo(p.category).dryJump * 100, 0)} cm</b> (±2 cm) e sottopassi <b>${fmt(categoryInfo(p.category).underpass * 100, 0)} cm</b>. Cambiando categoria le altezze degli ostacoli interessati vengono aggiornate.</p>
   </section>
   ${isRoller ? `
   <section class="grp">
@@ -302,8 +335,9 @@ function startPanel(state) {
       ${num('Corsie guidate dopo la linea', 'startGate.runoutLength', g.runoutLength, { step: 0.5 })}
     </div>
     <p class="hint">Totale fronte di partenza: <b>${fmtM(g.lanes * g.laneWidth, 2)}</b> (${g.lanes} × ${fmtM(g.laneWidth, 2)}).
-    Box ${fmt(g.boxDepth, 2)} × ${fmt(g.laneWidth, 2)} m ciascuno. Dopo la linea, ${fmtM(g.runoutLength, 2)} di corsie dritte.
-    La griglia conta come primo ostacolo: la distanza del primo salto si misura dalla fine delle corsie guidate.</p>
+    Box ${fmt(g.boxDepth, 2)} × ${fmt(g.laneWidth, 2)} m ciascuno. Dopo la linea, ${fmtM(g.runoutLength, 2)} di corsie separate.
+    <br>Regolamento: 4 box di 1 m di lunghezza e larghezza pari alle corsie, corsie separate di almeno 1,25 m per 5 m dopo la linea, rettilineo di partenza largo almeno 5 m e lungo almeno 20 m.
+    Il <b>primo ostacolo</b> non può stare a meno di <b>12 m dalla linea di partenza</b>.</p>
     ${btn('start.preset', 'Riporta allo standard (4 × 1,25 m)', 'primary')}
   </section>` : `
   <section class="grp">
@@ -315,7 +349,9 @@ function startPanel(state) {
       ${num('Larghezza', 'startRamp.width', r.width, { step: 0.25, min: 0.5 })}
       ${num('Altezza', 'startRamp.height', r.height, { step: 0.1 })}
     </div>
-    <p class="hint">La rampa occupa i primi ${fmtM(r.length, 2)} del tracciato e conta come primo ostacolo.</p>
+    <p class="hint">La rampa occupa i primi ${fmtM(r.length, 2)} del tracciato e conta come primo ostacolo.
+    <br>Allegato 3: piattaforma 2,00 m a quota 2,00 m e scivolo di 4,80 m inclinato 25° (ingombro a terra 6,35 m).
+    Art. 102: 4 gate su rampa di altezza massima 2 m.</p>
   </section>`}`;
 }
 
@@ -377,24 +413,35 @@ function autoPanel(state) {
 
 function rulesPanel(state) {
   const r = state.project.rules;
+  const roller = state.project.discipline === 'roller';
   return `
   <section class="grp">
     <h3>Distanze fra ostacoli</h3>
     <div class="flds">
       ${num('Distanza minima', 'rules.minGap', r.minGap, { step: 0.5, min: 0 })}
       ${num('Distanza massima', 'rules.maxGap', r.maxGap, { step: 0.5, min: 0 })}
+      ${num('Partenza → 1° ostacolo', 'rules.firstObstacleMin', r.firstObstacleMin, { step: 0.5, min: 0 })}
+      ${num('Ultimo ostacolo → arrivo', 'rules.finishMin', r.finishMin, { step: 0.5, min: 0 })}
     </div>
-    <p class="hint">Valgono fra due ostacoli consecutivi: anche una curva è un ostacolo. Fuori intervallo la struttura diventa <b class="cBad">rossa</b>, dentro <b class="cOk">verde</b>. Nessun blocco: puoi comunque lasciarla lì.</p>
+    <p class="hint">Valgono fra due ostacoli consecutivi: <b>anche una curva è un ostacolo</b>. Fuori intervallo la struttura diventa <b class="cBad">rossa</b>, dentro <b class="cOk">verde</b>. Nessun blocco: puoi comunque lasciarla lì.
+    ${roller ? '<br>Regolamento roller cross: minima <b>5 m</b>, massima <b>25 m</b>, <b>12 m</b> dalla linea di partenza al primo ostacolo e <b>10 m</b> fra ultimo ostacolo e arrivo.' : '<br>Per lo skate cross il regolamento non fissa distanze fra gli ostacoli: questi valori sono solo di lavoro.'}</p>
   </section>
   <section class="grp">
-    <h3>Corsia</h3>
+    <h3>Corsia e curve</h3>
     <div class="flds">
       ${num('Larghezza minima', 'rules.minWidth', r.minWidth, { step: 0.25, min: 0 })}
       ${num('Larghezza nominale', 'rules.maxWidth', r.maxWidth, { step: 0.25, min: 0 })}
       ${num('Raggio minimo curva', 'rules.minRadius', r.minRadius, { step: 0.5, min: 0, hint: '0 = libero' })}
     </div>
+    <p class="hint">${roller
+      ? 'Regolamento: larghezza minima <b>3,5 m</b>, ma <b>5 m</b> sul rettilineo di partenza e sulla prima curva; servono almeno <b>2 curve a destra e 2 a sinistra</b>; lunghezza totale <b>250–300 m</b>.'
+      : 'Regolamento skate cross: larghezza minima <b>5 m</b> e almeno <b>2 curve con raggio inferiore a 5 m</b>.'}</p>
     ${chk('Segnala ciò che esce dall\'area', 'rules.checkArea', r.checkArea)}
-    ${btn('rules.reset', 'Ripristina i valori standard')}
+    ${chk('Mostra la verifica di conformità al regolamento', 'rules.regCheck', r.regCheck !== false)}
+    <div class="row">
+      ${btn('rules.preset', 'Valori di regolamento', 'primary')}
+      ${btn('rules.reset', 'Ripristina predefiniti')}
+    </div>
   </section>`;
 }
 
@@ -407,6 +454,10 @@ function checkPanel(state) {
   const checks = (a.checks || []).map((c) =>
     `<li class="iss ${c.ok ? 'ok' : 'bad'}">${e(c.label)} — <span class="dim">${e(c.detail)}</span></li>`).join('');
   const radii = Object.entries(s.curvesByRadius).map(([r, n]) => `${n}× R${r}`).join(' · ') || '—';
+  const regList = a.regulation || [];
+  const regKo = regList.filter((c) => !c.ok).length;
+  const reg = regList.map((c) =>
+    `<li class="iss ${c.ok ? 'ok' : 'bad'}"><b>${c.ok ? '✓' : '✕'}</b> ${e(c.label)} — <span class="dim">${e(c.detail)}${c.ref ? ' · ' + e(c.ref) : ''}</span></li>`).join('');
   return `
   <section class="grp">
     <h3>Dati del percorso</h3>
@@ -415,6 +466,7 @@ function checkPanel(state) {
       <tr><th>di cui rettilinei</th><td>${fmtM(s.straightLength, 2)}</td></tr>
       <tr><th>di cui curve</th><td>${fmtM(s.curveLength, 2)}</td></tr>
       <tr><th>Curve</th><td>${s.curveCount} (${radii})</td></tr>
+      <tr><th>di cui destra / sinistra</th><td>${s.curvesRight} / ${s.curvesLeft}</td></tr>
       <tr><th>Strutture</th><td>${s.structureCount}</td></tr>
       <tr><th>Larghezza corsia</th><td>${fmtM(s.minWidth, 2)} – ${fmtM(s.maxWidth, 2)}</td></tr>
       <tr><th>Superficie area</th><td>${fmt(s.areaValue, 1)} m²</td></tr>
@@ -422,6 +474,11 @@ function checkPanel(state) {
       <tr><th>Incroci</th><td>${s.crossings}</td></tr>
     </table>
   </section>
+  ${reg ? `<section class="grp">
+    <h3>Conformità al regolamento <span class="dim">${regKo ? regKo + ' da sistemare' : 'tutto a posto'}</span></h3>
+    <ul class="issues">${reg}</ul>
+    <p class="hint">${e(REG_SOURCE)}. Le quote dei disegni (Allegato 3) sono dichiarate indicative dal regolamento stesso.</p>
+  </section>` : ''}
   ${checks ? `<section class="grp"><h3>Parametri richiesti</h3><ul class="issues">${checks}</ul></section>` : ''}
   <section class="grp">
     <h3>Segnalazioni <span class="dim">${a.issues.length}</span></h3>
@@ -478,6 +535,7 @@ function cloudPanel(state) {
 
 export function statusHTML(state) {
   const s = state.analysis.stats;
+  const regKo = (state.analysis.regulation || []).filter((c) => !c.ok).length;
   const bad = state.analysis.issues.filter((i) => i.level === 'bad').length;
   const warn = state.analysis.issues.filter((i) => i.level === 'warn').length;
   return `<span><b>${fmtM(s.totalLength, 2)}</b> asse</span>
@@ -485,5 +543,6 @@ export function statusHTML(state) {
     <span>${s.structureCount} strutture</span>
     <span>corsia ${fmt(s.minWidth, 2)}–${fmt(s.maxWidth, 2)} m</span>
     ${bad ? `<span class="badge bad" data-act="tab:check">${bad} fuori regola</span>` : `<span class="badge ok">ok</span>`}
-    ${warn ? `<span class="badge warn" data-act="tab:check">${warn} da verificare</span>` : ''}`;
+    ${warn ? `<span class="badge warn" data-act="tab:check">${warn} da verificare</span>` : ''}
+    ${regKo ? `<span class="badge warn" data-act="tab:check">regolamento: ${regKo}</span>` : (state.analysis.regulation || []).length ? '<span class="badge ok" data-act="tab:check">regolamento ✓</span>' : ''}`;
 }

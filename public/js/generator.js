@@ -5,6 +5,7 @@
 
 import * as G from './geometry.js';
 import { uid, libraryItem, STRUCTURE_LIBRARY, makeStructure } from './model.js';
+import { ROLLER } from './regulation.js';
 import { bakeTrack, analyze, collectObstacles } from './track.js';
 
 const { DEG, add, mul, sub, dirOf, leftOf, clamp } = G;
@@ -136,6 +137,32 @@ function repair(cand, poly, margin, rules) {
   return { plan, start, repaired: true, failed: true };
 }
 
+/** il tracciato deve finire con un rettilineo: serve spazio fra ultimo ostacolo e arrivo */
+function ensureFinishRunout(plan, start, poly, margin, rules) {
+  const need = (rules.finishMin || 0) + 2;
+  if (need <= 2) return plan;
+  let p = plan.slice();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const last = p[p.length - 1];
+    if (last && last.type === 'straight' && last.length >= need) return p;
+    const width = last ? last.width : 5;
+    if (last && last.type === 'straight') {
+      // prova ad allungare il rettilineo finale
+      const grown = p.slice(0, -1).concat([{ ...last, length: need }]);
+      if (!countOutside(grown, start, poly, margin).bad) return grown;
+    } else {
+      for (let L = need + 4; L >= need; L -= 1) {
+        const ext = p.concat([{ type: 'straight', length: L, width }]);
+        if (!countOutside(ext, start, poly, margin).bad) return ext;
+      }
+    }
+    // non c'è spazio: togli l'ultimo elemento e riprova
+    p = p.slice(0, -1);
+    if (p.length < 2) break;
+  }
+  return p;
+}
+
 /* --------------------------------------------------------- strategie */
 
 /** serpentina: rettilinei paralleli collegati da tornanti a 180° */
@@ -168,20 +195,39 @@ function serpentine(poly, opt) {
         }
         if (lanes.length < 2) continue;
 
-        // primo tratto: percorre la corsia 0 nel senso +d
+        // quante corsie usare: almeno quelle che servono per le curve
+        // obbligatorie, poi si taglia (e si scalano i rettilinei) sul target
+        const minLanes = Math.max(2, (opt.minTurns || 0) + 1);
+        let useLanes = lanes.length;
+        if (target) {
+          let acc = 0, n = 0;
+          for (let k = 0; k < lanes.length; k++) {
+            acc += lanes[k].len + (k ? R * Math.PI : 0);
+            n = k + 1;
+            if (acc >= target && n >= minLanes) break;
+          }
+          useLanes = Math.min(lanes.length, Math.max(minLanes, n));
+        }
+        if (useLanes < 2) continue;
+        const used = lanes.slice(0, useLanes);
+        const turnTotal = (useLanes - 1) * R * Math.PI;
+        const straightTotal = used.reduce((a, l) => a + l.len, 0);
+        let scale = 1;
+        if (target && straightTotal + turnTotal > target && straightTotal > 0) {
+          scale = G.clamp((target - turnTotal) / straightTotal, 0.15, 1);
+        }
+        const minStraight = Math.max(rules.minGap, 4);
+        if (straightTotal * scale / useLanes < minStraight) continue;
+
         const plan = [];
         let turnDir = firstDir;
-        let laneCount = 0;
-        for (let k = 0; k < lanes.length; k++) {
-          const L = lanes[k].len;
-          plan.push({ type: 'straight', length: L, width });
-          laneCount++;
-          if (k < lanes.length - 1) plan.push({ type: 'arc', radius: R, angle: 180, dir: turnDir, width });
-          turnDir = turnDir === 'left' ? 'right' : 'left';
-          const partial = plan.reduce((a, e) => a + (e.type === 'arc' ? e.radius * e.angle * DEG : e.length), 0);
-          if (target && partial >= target) break;
+        for (let k = 0; k < used.length; k++) {
+          plan.push({ type: 'straight', length: Math.max(minStraight, used[k].len * scale), width });
+          if (k < used.length - 1) {
+            plan.push({ type: 'arc', radius: R, angle: 180, dir: turnDir, width });
+            turnDir = turnDir === 'left' ? 'right' : 'left';
+          }
         }
-        if (laneCount < 2) continue;
         const l0 = lanes[0];
         const startPoint = add(add(origin, mul(n, l0.lat)), mul(d, l0.from));
         out.push({
@@ -299,6 +345,19 @@ function organic(poly, opt, seed) {
   const maxGap = rules.maxGap || 25;
   const minGap = rules.minGap || 3;
 
+  // rettilineo di partenza (Art. 65: almeno 20 m nel roller cross)
+  if (opt.startStraightMin > 0) {
+    let placedStart = false;
+    for (let L = opt.startStraightMin + 6; L >= opt.startStraightMin; L -= 1) {
+      const r = walk(pose, { type: 'straight', length: L, width }, 1.0);
+      if (r.pts.every((q) => okPoint(q, poly, margin))) {
+        plan.push({ type: 'straight', length: L, width });
+        pose = r.pose; total += L; placedStart = true; break;
+      }
+    }
+    if (!placedStart) return null;
+  }
+
   for (let step = 0; step < 140 && total < goal; step++) {
     let placed = false;
     for (let attempt = 0; attempt < 44 && !placed; attempt++) {
@@ -357,63 +416,91 @@ function mulberry(a) {
  * Inserisce strutture nei tratti rettilinei rispettando le distanze
  * minime/massime dagli ostacoli precedenti. Riempie i buchi > maxGap.
  */
+/**
+ * Inserisce ostacoli nei tratti liberi rispettando le distanze (minima, massima,
+ * 12 m dalla linea di partenza, 10 m dall'arrivo) e, per il roller cross,
+ * cercando di coprire le quote dell'Art. 64: almeno 1 Gimkana, 4 Barriere e
+ * 3 Rampe di almeno 2 tipologie.
+ */
 export function autoPlaceStructures(project, opts = {}) {
   const rules = project.rules;
   const wanted = opts.count ?? project.genParams?.structureCount ?? null;
-  const pool = (opts.keys && opts.keys.length ? opts.keys : ['rampa', 'tabletop', 'gobba', 'doppia', 'whoops', 'stepup', 'rollers', 'wall'])
-    .map(libraryItem);
-  const shortest = Math.min(...pool.map((s) => s.length));
-  // in automatico si riempiono i tratti più lunghi di questa soglia
-  // in automatico si riempie ogni tratto in cui una struttura entra rispettando le distanze
+  const roller = project.discipline === 'roller';
+  const cat = project.category;
+
+  // ordine di preferenza: prima si coprono le quote obbligatorie
+  const barriere = ['saltosecco', 'sottopasso', 'saltotriplo', 'tunnel'];
+  const rampe = ['dritta200', 'banktobank', 'dosso', 'valle', 'canadese', 'dritta290', 'parabolica', 'spina'];
+  const skatePool = ['funbox', 'banktobank', 'curva45', 'dritta290', 'valle', 'parabolica'];
+
+  const count = { gimkane: 0, barriere: 0, rampe: 0, altro: 0 };
+  const rampTypes = new Set();
+  for (const s of project.structures) {
+    const grp = s.group || libraryItem(s.key).group;
+    if (count[grp] !== undefined) count[grp]++;
+    if (grp === 'rampe') rampTypes.add(s.key);
+  }
+
+  const nextKey = (i) => {
+    if (!roller) return skatePool[i % skatePool.length];
+    if (count.gimkane < ROLLER.groups.gimkane) return 'gimkana';
+    if (count.barriere < ROLLER.groups.barriere) return barriere[count.barriere % barriere.length];
+    if (count.rampe < ROLLER.groups.rampe || rampTypes.size < ROLLER.groups.rampeTipologie) {
+      return rampe[count.rampe % rampe.length];
+    }
+    return [...rampe, ...barriere][i % (rampe.length + barriere.length)];
+  };
+
+  const shortest = Math.min(...STRUCTURE_LIBRARY.map((s) => s.length));
   const threshold = opts.targetSpacing ?? (2 * rules.minGap + shortest);
   const placed = [];
   let guard = 0;
 
   while (guard++ < 80) {
     const baked = bakeTrack(project);
+    const finishLimit = baked.totalLength - (rules.finishMin || 0);
     const obs = collectObstacles(project, baked).sort((a, b) => a.sStart - b.sStart);
     let hole = null;
-    const consider = (gap, from, to, after) => {
-      if (!hole || gap > hole.gap) hole = { gap, from, to, after };
+    const consider = (from, to, after) => {
+      const gap = to - from;
+      if (gap > 0 && (!hole || gap > hole.gap)) hole = { gap, from, to, after };
     };
-    if (!obs.length) consider(baked.totalLength, 0, baked.totalLength, 'partenza');
-    for (let i = 0; i < obs.length - 1; i++) {
-      consider(obs[i + 1].sStart - obs[i].sEnd, obs[i].sEnd, obs[i + 1].sStart, obs[i].label);
-    }
-    if (obs.length) {
-      const last = obs[obs.length - 1];
-      consider(baked.totalLength - last.sEnd, last.sEnd, baked.totalLength, last.label);
-    }
+    for (let i = 0; i < obs.length - 1; i++) consider(obs[i].sEnd, obs[i + 1].sStart, obs[i].label);
+    if (obs.length) consider(obs[obs.length - 1].sEnd, finishLimit, obs[obs.length - 1].label);
+    else consider(0, finishLimit, 'partenza');
     if (!hole) break;
 
     const needMore = wanted === null ? hole.gap > threshold : placed.length < wanted;
     if (!needMore) break;
 
-    const room = hole.gap - 2 * rules.minGap;
-    const cands = pool.filter((s) => s.length <= Math.max(0.5, room));
-    if (!cands.length) break;
-    const lib = cands[placed.length % cands.length];
+    const key = nextKey(placed.length);
+    const lib = libraryItem(key);
+    // posizione più vicina consentita: minGap dall'ostacolo precedente,
+    // ma almeno 12 m dalla linea di partenza per il primo ostacolo
+    const afterStart = obs.length && obs[0].kind === 'start' && Math.abs(hole.from - obs[0].sEnd) < 1e-6;
+    const firstMin = afterStart ? (rules.firstObstacleMin || 0) : 0;
+    let sStart = Math.max(hole.from + rules.minGap, firstMin);
+    const slack = hole.to - rules.minGap - lib.length - sStart;
+    if (slack < -1e-6) break;
+    let sMid = sStart + lib.length / 2 + Math.min(Math.max(0, slack / 2), Math.max(0, rules.maxGap - rules.minGap));
+    sMid = clamp(sMid, lib.length / 2, Math.max(lib.length / 2, finishLimit - lib.length / 2));
 
-    // posizione: a minGap dall'ostacolo precedente, centrata nel buco se c'è spazio
-    const slack = Math.max(0, hole.gap - 2 * rules.minGap - lib.length);
-    let sMid = hole.from + rules.minGap + lib.length / 2 + Math.min(slack / 2, Math.max(0, rules.maxGap - rules.minGap - lib.length));
-    sMid = clamp(sMid, lib.length / 2, baked.totalLength - lib.length / 2);
-
-    // preferisci un tratto rettilineo
+    // preferisci un tratto rettilineo (obbligatorio per le gimkane)
     let el = baked.elements.find((e) => sMid >= e.startStation && sMid <= e.endStation);
     if (el && el.type === 'arc') {
-      const after = el.endStation + rules.minGap + lib.length / 2;
-      const before = el.startStation - rules.minGap - lib.length / 2;
-      const altAfter = after + lib.length / 2 <= hole.to ? after : null;
-      const altBefore = before - lib.length / 2 >= hole.from ? before : null;
-      const alt = altAfter ?? altBefore;
-      if (alt === null) break;
+      const alt = el.endStation + rules.minGap + lib.length / 2;
+      if (alt + lib.length / 2 > hole.to || alt > finishLimit) break;
       sMid = alt;
       el = baked.elements.find((e) => sMid >= e.startStation && sMid <= e.endStation);
     }
     const lane = el ? G.lerp(el.widthStart, el.widthEnd, el.length ? (sMid - el.startStation) / el.length : 0) : project.track.defaultWidth;
-    project.structures.push(makeStructure(lib.key, G.round(sMid, 2), { width: G.round(Math.min(lib.width, lane), 2) }));
-    placed.push(lib.key);
+    const width = G.round(Math.min(lib.width, Math.max(lib.key === 'rialzo' ? ROLLER.rampWidthMin : 1, lane)), 2);
+    project.structures.push(makeStructure(key, G.round(sMid, 2), { width, category: cat }));
+
+    const grp = lib.group;
+    if (count[grp] !== undefined) count[grp]++;
+    if (grp === 'rampe') rampTypes.add(key);
+    placed.push(key);
   }
   return placed.length;
 }
@@ -427,12 +514,29 @@ function scoreCandidate(project, cand) {
   const notes = [];
 
   // lunghezza
+  const L = a.stats.totalLength;
   if (gp.targetLength) {
-    const err = Math.abs(a.stats.totalLength - gp.targetLength);
+    const err = Math.abs(L - gp.targetLength);
     score -= err * 2.5;
-    if (err > gp.targetLength * 0.1) notes.push(`lunghezza ${G.round(a.stats.totalLength, 0)} m invece di ${gp.targetLength} m`);
+    if (err > gp.targetLength * 0.1) notes.push(`lunghezza ${G.round(L, 0)} m invece di ${gp.targetLength} m`);
+  } else if (project.discipline === 'roller') {
+    // senza obiettivo esplicito si punta all'intervallo di regolamento 250–300 m
+    const off = L < ROLLER.totalLengthMin ? ROLLER.totalLengthMin - L
+      : L > ROLLER.totalLengthMax ? L - ROLLER.totalLengthMax : 0;
+    score -= off * 2.5;
+    score += off ? 0 : 150;
+    if (off) notes.push(`lunghezza ${G.round(L, 0)} m, fuori dall'intervallo 250–300 m`);
   } else {
-    score += a.stats.totalLength * 0.8; // senza obiettivo premia lo sfruttamento dello spazio
+    score += L * 0.8;
+  }
+  // curve obbligatorie a destra e a sinistra (roller cross)
+  if (project.discipline === 'roller') {
+    const arcs = a.baked.elements.filter((e) => e.type === 'arc');
+    const nR = arcs.filter((e) => e.dir === 'right').length;
+    const nL = arcs.filter((e) => e.dir === 'left').length;
+    const missing = Math.max(0, ROLLER.curvesRightMin - nR) + Math.max(0, ROLLER.curvesLeftMin - nL);
+    score -= missing * 110;
+    if (missing) notes.push(`servono almeno 2 curve a destra e 2 a sinistra (ora ${nR}/${nL})`);
   }
   // curve richieste
   for (const req of gp.curveReqs || []) {
@@ -481,7 +585,12 @@ export function generateCandidates(baseProject, options = {}) {
   const geoRadii = [...new Set([...reqRadii, ...stdRadii])].sort((a, b) => a - b);
   const headings = options.headings || [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165];
 
-  const opt = { width, margin, radii, target: gp.targetLength || null, rules, headings };
+  const isRoller = project.discipline === 'roller';
+  const startStraightMin = isRoller ? ROLLER.startStraightMinLength : 0;
+  // senza obiettivo esplicito, nel roller cross si punta al centro dell'intervallo
+  const workTarget = gp.targetLength || (isRoller ? (ROLLER.totalLengthMin + ROLLER.totalLengthMax) / 2 : null);
+  const minTurns = isRoller ? ROLLER.curvesRightMin + ROLLER.curvesLeftMin : 0;
+  const opt = { width, margin, radii, target: workTarget, rules, headings, startStraightMin, minTurns };
   const geoOpt = { ...opt, radii: geoRadii };
   const strategy = gp.strategy || 'auto';
 
@@ -502,8 +611,8 @@ export function generateCandidates(baseProject, options = {}) {
   for (const cand of raw) {
     const fixed = repair(cand, poly, margin, rules);
     if (fixed.failed) continue;
-    const plan = fixed.plan;
-    if (!plan.length) continue;
+    const plan = ensureFinishRunout(fixed.plan, fixed.start, poly, margin, rules);
+    if (plan.length < 2) continue;
     const elements = plan.map((p) => p.type === 'arc'
       ? { id: uid('el'), type: 'arc', radius: G.round(p.radius, 2), angle: G.round(p.angle, 1), dir: p.dir, widthStart: width, widthEnd: width }
       : { id: uid('el'), type: 'straight', length: G.round(p.length, 2), widthStart: width, widthEnd: width });

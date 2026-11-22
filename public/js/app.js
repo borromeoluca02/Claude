@@ -3,8 +3,9 @@
 import * as G from './geometry.js';
 import {
   createProject, normalizeProject, makeArea, makeStructure, makeElement,
-  DEFAULT_RULES, DEFAULT_START_GATE, libraryItem,
+  DEFAULT_RULES, DEFAULT_START_GATE, DEFAULT_START_RAMP, libraryItem,
 } from './model.js';
+import { rulePreset, categoryInfo, ROLLER } from './regulation.js';
 import { analyze, validStationRanges, extendTo, bakeTrack, projectPoint } from './track.js';
 import { generateCandidates, autoPlaceStructures } from './generator.js';
 import { render, fitView, toScreen, fmtM, fmt } from './render.js';
@@ -46,25 +47,23 @@ const state = {
   cloudProjects: [],
 };
 
-/* progetto dimostrativo iniziale: serpentina che rispetta le regole standard */
+/* Progetto dimostrativo: serpentina di 275 m in un'area trapezoidale,
+   conforme a tutti i controlli del Regolamento Tecnico FISR 2025-2026. */
 function demoProject() {
-  const p = createProject({ name: 'Percorso di esempio', area: makeArea('trapezoid', { b1: 62, b2: 44, h: 38 }) });
-  p.track.start = { x: 15, y: 6, heading: 0 };
+  const p = createProject({ name: 'Percorso di esempio', area: makeArea('trapezoid', { b1: 110, b2: 80, h: 72 }) });
+  p.track.start = { x: 23.5, y: 68, heading: 0 };
   p.track.defaultWidth = 5;
+  const S = (length) => makeElement('straight', { length, widthStart: 5, widthEnd: 5 });
+  const A = (dir) => makeElement('arc', { radius: 5, angle: 180, dir, widthStart: 5, widthEnd: 5 });
   p.track.elements = [
-    makeElement('straight', { length: 26, widthStart: 5, widthEnd: 5 }),
-    makeElement('arc', { radius: 6, angle: 180, dir: 'left', widthStart: 5, widthEnd: 4 }),
-    makeElement('straight', { length: 26, widthStart: 4, widthEnd: 4 }),
-    makeElement('arc', { radius: 6, angle: 180, dir: 'right', widthStart: 4, widthEnd: 5 }),
-    makeElement('straight', { length: 26, widthStart: 5, widthEnd: 5 }),
+    S(37.39), A('right'), S(40.06), A('left'), S(42.43),
+    A('right'), S(44.81), A('left'), S(47.48),
   ];
   p.structures = [
-    makeStructure('rampa', 10),
-    makeStructure('tabletop', 18.5),
-    makeStructure('gobba', 49.4),
-    makeStructure('doppia', 58),
-    makeStructure('whoops', 96.7),
-  ];
+    ['tunnel', 22.2], ['dosso', 62.81], ['sottopasso', 73.13], ['saltosecco', 83.44],
+    ['banktobank', 119.35], ['saltosecco', 130.08], ['dritta200', 140.81],
+    ['sottopasso', 176.21], ['gimkana', 189.41], ['saltotriplo', 246.26],
+  ].map(([key, station]) => makeStructure(key, station, { category: p.category }));
   p.genParams.width = 5;
   return p;
 }
@@ -288,9 +287,38 @@ const actions = {
 
   /* --- disciplina --- */
   discipline(kind) {
-    state.project.discipline = kind;
-    if (kind === 'skate') state.project.startRamp.enabled = true;
+    const p = state.project;
+    if (p.discipline === kind) return;
+    p.discipline = kind;
+    p.rules = { ...p.rules, ...rulePreset(kind) };
+    if (kind === 'skate') {
+      p.startRamp = { ...DEFAULT_START_RAMP, ...p.startRamp, enabled: true };
+    }
     commit();
+    toast(kind === 'skate'
+      ? 'Skate cross: corsia minima 5 m, partenza su rampa'
+      : 'Roller cross: distanze 5–25 m, corsia minima 3,5 m');
+  },
+
+  /* categoria: aggiorna le altezze normate di salti e sottopassi */
+  cat(key) {
+    state.project.category = key;
+    const info = categoryInfo(key);
+    let n = 0;
+    for (const s of state.project.structures) {
+      const lib = libraryItem(s.key);
+      if (!lib.byCategory) continue;
+      const h = info[lib.byCategory];
+      if (h && Math.abs(s.height - h) > 1e-6) { s.height = h; n++; }
+    }
+    commit();
+    toast(n ? `${info.label}: aggiornate ${n} altezze` : info.label);
+  },
+
+  'rules.preset': () => {
+    state.project.rules = { ...state.project.rules, ...rulePreset(state.project.discipline) };
+    commit();
+    toast('Ripristinati i valori del regolamento');
   },
 
   /* --- area --- */
@@ -650,9 +678,10 @@ const api = {
     const pr = projectPoint(state.analysis.baked, wp);
     const lib = libraryItem(key);
     const onTrack = pr.dist < Math.max(8, lib.width);
+    const cat = state.project.category;
     const s = onTrack
-      ? makeStructure(key, G.round(G.clamp(pr.station, 0, state.analysis.baked.totalLength), 2), { side: G.round(pr.side, 2) })
-      : makeStructure(key, 0, { mode: 'free', x: G.round(wp.x, 2), y: G.round(wp.y, 2) });
+      ? makeStructure(key, G.round(G.clamp(pr.station, 0, state.analysis.baked.totalLength), 2), { side: G.round(pr.side, 2), category: cat })
+      : makeStructure(key, 0, { mode: 'free', x: G.round(wp.x, 2), y: G.round(wp.y, 2), category: cat });
     state.project.structures.push(s);
     state.selection = { kind: 'structure', id: s.id };
     commit();

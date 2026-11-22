@@ -1,6 +1,7 @@
 /* model.js — schema del progetto, valori di default, libreria strutture. */
 
 import * as G from './geometry.js';
+import { ROLLER, SKATE, START_RAMP_REG, rulePreset, categoryInfo, CATEGORIES } from './regulation.js';
 
 export const SCHEMA_VERSION = 1;
 
@@ -8,54 +9,93 @@ export function uid(prefix = 'id') {
   return prefix + '_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 }
 
-/* Regole di default (tutte modificabili dall'utente, nessuna è bloccante). */
-export const DEFAULT_RULES = {
-  minGap: 3,        // m — distanza minima fra ostacoli consecutivi
-  maxGap: 25,       // m — distanza massima fra ostacoli consecutivi
-  minWidth: 3,      // m — larghezza minima della corsia
-  maxWidth: 5,      // m — larghezza nominale della corsia
-  minRadius: 3,     // m — raggio minimo di curva (0 = regola disattivata)
-  checkArea: true,  // segnala in rosso ciò che esce dall'area
-};
+/* Regole di default: valori del Regolamento Tecnico FISR 2025-2026 per il
+   roller cross (Art. 65). Restano tutte modificabili e nessuna è bloccante. */
+export const DEFAULT_RULES = { ...rulePreset('roller') };
 
 /* Partenza roller cross: 4 box da 1,00 x 1,25 m = 5 m totali + 5 m di corsie. */
 export const DEFAULT_START_GATE = {
   enabled: true,
-  lanes: 4,
-  laneWidth: 1.25,
-  boxDepth: 1.0,
-  runoutLength: 5.0,
+  lanes: ROLLER.startBoxes,          // 4 box di partenza
+  laneWidth: ROLLER.startLaneWidth,  // minimo 1,25 m
+  boxDepth: ROLLER.startBoxLength,   // 1 m di lunghezza
+  runoutLength: ROLLER.startLanesLength, // 5 m di corsie separate
 };
 
 /* Partenza skate cross: rampa di lancio. */
+/* Rampa di partenza (Allegato 3): piattaforma 2,00 m a quota 2,00 m e scivolo
+   di 4,80 m inclinato 25° → ingombro a terra 6,35 m. Nello skate cross i 4 gate
+   sono su rampa di altezza massima 2 m (Art. 102). */
 export const DEFAULT_START_RAMP = {
   enabled: true,
   name: 'Rampa di partenza',
-  length: 6,
+  length: G.round(START_RAMP_REG.groundLength, 2),
   width: 5,
-  height: 1.8,
+  height: START_RAMP_REG.height,
+  platformLength: START_RAMP_REG.platformLength,
+  slopeLength: START_RAMP_REG.slopeLength,
+  slopeAngle: START_RAMP_REG.slopeAngle,
 };
 
-/* Libreria strutture: length = sviluppo lungo il percorso, width = trasversale. */
+/* Libreria ostacoli secondo il Regolamento Tecnico (Art. 64, tabella ostacoli)
+   con le quote dei disegni dell'Allegato 3.
+   length = sviluppo lungo il percorso, width = trasversale, height = altezza.
+   `group` serve alle verifiche: almeno 1 Gimkana, 4 Barriere e 3 Rampe di
+   almeno 2 tipologie diverse. */
 export const STRUCTURE_LIBRARY = [
-  { key: 'rampa',      name: 'Rampa',            length: 4,   width: 5, height: 1.2, cat: 'salto' },
-  { key: 'doppia',     name: 'Doppia',           length: 8,   width: 5, height: 1.4, cat: 'salto' },
-  { key: 'tabletop',   name: 'Table top',        length: 7,   width: 5, height: 1.5, cat: 'salto' },
-  { key: 'stepup',     name: 'Step up',          length: 6,   width: 5, height: 1.8, cat: 'salto' },
-  { key: 'stepdown',   name: 'Step down',        length: 6,   width: 5, height: 1.8, cat: 'salto' },
-  { key: 'gobba',      name: 'Gobba',            length: 3,   width: 5, height: 0.6, cat: 'ritmo' },
-  { key: 'whoops',     name: 'Whoops (3 gobbe)', length: 6,   width: 5, height: 0.5, cat: 'ritmo' },
-  { key: 'rollers',    name: 'Rollers',          length: 9,   width: 5, height: 0.4, cat: 'ritmo' },
-  { key: 'piramide',   name: 'Piramide',         length: 8,   width: 5, height: 1.6, cat: 'salto' },
-  { key: 'wall',       name: 'Wall',             length: 5,   width: 5, height: 2.0, cat: 'tecnico' },
-  { key: 'paraboliche',name: 'Parabolica',       length: 6,   width: 5, height: 1.0, cat: 'tecnico' },
-  { key: 'chicane',    name: 'Chicane',          length: 6,   width: 5, height: 0.3, cat: 'tecnico' },
-  { key: 'bank',       name: 'Curva sopraelevata', length: 8, width: 5, height: 1.2, cat: 'curva' },
-  { key: 'generica',   name: 'Struttura',        length: 4,   width: 5, height: 1.0, cat: 'altro' },
+  // ---- GIMKANE
+  { key: 'gimkana', name: 'Gimkana', group: 'gimkane', length: 8, width: 5, height: 0.08,
+    note: 'Almeno 3 elementi, distanza 3–5 m, su rettilineo largo almeno 5 m' },
+  { key: 'campominato', name: 'Campo minato', group: 'gimkane', length: 6, width: 5, height: 0.08,
+    note: 'Elementi non facilmente abbattibili' },
+  { key: 'imbuto', name: 'Imbuto', group: 'gimkane', length: 4, width: 5, height: 0.08 },
+
+  // ---- BARRIERE
+  { key: 'saltosecco', name: 'Salto a secco', group: 'barriere', length: 0.5, width: 5, height: 0.4,
+    byCategory: 'dryJump', note: 'h 30/40/50 cm secondo la categoria (±2 cm)' },
+  { key: 'sottopasso', name: 'Sottopasso', group: 'barriere', length: 1.2, width: 5, height: 1.1,
+    byCategory: 'underpass', note: 'h 90 cm Gio/Eso, 110 cm altre categorie' },
+  { key: 'tunnel', name: 'Tunnel', group: 'barriere', length: 3, width: 5, height: 1.1,
+    note: 'Tipologia e dimensioni approvate dalla CDS' },
+  { key: 'saltotriplo', name: 'Salto triplo', group: 'barriere', length: 10.4, width: 5, height: 0.3,
+    note: '3 elementi a 5 m l\'uno dall\'altro, triangolo equilatero lato 35 cm, h 30 cm' },
+
+  // ---- RAMPE (Allegato 3)
+  { key: 'dritta150', name: 'Rampa dritta 1,50', group: 'rampe', length: 1.5, width: 5, height: 0.4, note: 'Inclinazione 16°' },
+  { key: 'dritta200', name: 'Rampa dritta 2,00', group: 'rampe', length: 2, width: 5, height: 0.4, note: 'Inclinazione 12°' },
+  { key: 'dritta290', name: 'Rampa dritta 2,90', group: 'rampe', length: 2.9, width: 5, height: 0.8, note: 'Inclinazione 16°' },
+  { key: 'dritta280', name: 'Rampa non raccordata', group: 'rampe', length: 2.8, width: 5, height: 0.8, note: '16°, non raccordata al suolo' },
+  { key: 'banktobank', name: 'Bank to bank', group: 'rampe', length: 6, width: 5, height: 0.75, note: '2,00 + 2,00 + 2,00 m · 22°' },
+  { key: 'banktobankvar', name: 'Bank to bank var.', group: 'rampe', length: 6, width: 5, height: 0.85, note: 'Pendenza variabile 25° / 19°' },
+  { key: 'curva45', name: 'Curva h 45', group: 'rampe', length: 6, width: 5, height: 0.45 },
+  { key: 'spina', name: 'Spina', group: 'rampe', length: 6, width: 5, height: 1.4, note: 'h da 1,00 a 1,80 m · raccordi R 3,00 m' },
+  { key: 'dosso', name: 'Dosso', group: 'rampe', length: 2.75, width: 5, height: 0.4 },
+  { key: 'valle', name: 'Valle', group: 'rampe', length: 4, width: 5, height: 0.8 },
+  { key: 'rialzo', name: 'Rialzo', group: 'rampe', length: 2.45, width: 1.8, height: 0.5,
+    note: 'Lunghezza 2,30–2,60 m · h anteriore 15–30 cm · h posteriore 30–50 cm · largh. min 1,80 m' },
+  { key: 'canadese', name: 'Canadese', group: 'rampe', length: 3.6, width: 5, height: 0.6, note: '1,80 + 1,80 m' },
+  { key: 'parabolica', name: 'Parabolica', group: 'rampe', length: 8, width: 5, height: 1.15, note: 'Rampa di ingresso 2,00 m a 35°' },
+  { key: 'funbox', name: 'Funbox', group: 'rampe', length: 6, width: 4, height: 1.75,
+    note: 'Skate cross: h 1,50–2,00 m, larghezza 4,00 m' },
+
+  // ---- ALTRO
+  { key: 'generica', name: 'Struttura', group: 'altro', length: 4, width: 5, height: 1.0 },
 ];
 
+/* chiavi usate nelle versioni precedenti dell'app */
+const LEGACY_KEYS = {
+  rampa: 'dritta200', doppia: 'banktobank', tabletop: 'banktobank', stepup: 'dritta290',
+  stepdown: 'dritta290', gobba: 'dosso', whoops: 'dosso', rollers: 'dosso',
+  piramide: 'canadese', wall: 'spina', paraboliche: 'parabolica', chicane: 'gimkana',
+  bank: 'curva45',
+};
+
+export const GROUP_LABELS = { gimkane: 'Gimkane', barriere: 'Barriere', rampe: 'Rampe', altro: 'Altro' };
+
 export function libraryItem(key) {
-  return STRUCTURE_LIBRARY.find((s) => s.key === key) || STRUCTURE_LIBRARY[STRUCTURE_LIBRARY.length - 1];
+  return STRUCTURE_LIBRARY.find((s) => s.key === key)
+    || STRUCTURE_LIBRARY.find((s) => s.key === LEGACY_KEYS[key])
+    || STRUCTURE_LIBRARY[STRUCTURE_LIBRARY.length - 1];
 }
 
 /* ------------------------------------------------------------------- area */
@@ -94,6 +134,7 @@ export function createProject(opts = {}) {
     id: opts.id || uid('prj'),
     name: opts.name || 'Nuovo percorso',
     discipline: opts.discipline || 'roller', // 'roller' | 'skate'
+    category: opts.category || 'ragallmas',  // altezze salti/sottopassi per categoria
     notes: '',
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -124,11 +165,13 @@ export function createProject(opts = {}) {
 
 export function makeStructure(key, station = 0, opts = {}) {
   const lib = libraryItem(key);
+  const catH = lib.byCategory && opts.category ? categoryInfo(opts.category)[lib.byCategory] : null;
   return {
     id: uid('st'),
     key: lib.key,
+    group: lib.group,
     name: opts.name || lib.name,
-    height: opts.height ?? lib.height,
+    height: opts.height ?? catH ?? lib.height,
     length: opts.length ?? lib.length,
     width: opts.width ?? lib.width,
     mode: opts.mode || 'path',   // 'path' = ancorata al tracciato, 'free' = libera
@@ -167,6 +210,7 @@ export function normalizeProject(raw) {
   const out = { ...p, ...raw };
   out.schema = SCHEMA_VERSION;
   out.discipline = raw.discipline === 'skate' ? 'skate' : 'roller';
+  out.category = CATEGORIES.some((c) => c.key === raw.category) ? raw.category : 'ragallmas';
   out.rules = { ...DEFAULT_RULES, ...(raw.rules || {}) };
   out.startGate = { ...DEFAULT_START_GATE, ...(raw.startGate || {}) };
   out.startRamp = { ...DEFAULT_START_RAMP, ...(raw.startRamp || {}) };
@@ -212,6 +256,7 @@ export function normalizeProject(raw) {
     ...makeStructure(s.key || 'generica'),
     ...s,
     id: s.id || uid('st'),
+    group: s.group || libraryItem(s.key || 'generica').group,
     height: +(s.height ?? 1),
     length: Math.max(0.2, +(s.length ?? 4)),
     width: Math.max(0.2, +(s.width ?? 5)),
@@ -224,3 +269,5 @@ export function normalizeProject(raw) {
 }
 
 export const cloneProject = (p) => JSON.parse(JSON.stringify(p));
+
+export { ROLLER, SKATE, CATEGORIES, categoryInfo, rulePreset, START_RAMP_REG };

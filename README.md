@@ -27,14 +27,17 @@ Firebase (Hosting + Authentication + Firestore) per il salvataggio online.
 * Si trascinano: il punto di partenza, la direzione, i pallini di fine elemento.
   Sul pallino di una curva selezionata si controllano **insieme raggio e angolo**.
 * **Larghezza corsia** per singolo tratto, con restringimento progressivo
-  (es. da 5 m a 3 m dentro lo stesso tratto). Il valore nominale è 5 m, il
-  minimo di regola 3 m: si può scendere sotto, ma il tratto diventa rosso.
+  (es. da 5 m a 3,5 m dentro lo stesso tratto). Il regolamento chiede 5 m sul
+  rettilineo di partenza e sulla prima curva e almeno 3,5 m sul resto: sotto il
+  minimo impostato il tratto diventa rosso, ma resta modificabile.
 * Al centro dell'asse del percorso è sempre scritto lo **sviluppo totale**
   (misurato sul centro della corsia), con il campo di larghezza min–max.
 
 ### Strutture
-* Libreria pronta: rampa, doppia, table top, step up/down, gobba, whoops,
-  rollers, piramide, wall, parabolica, chicane, curva sopraelevata.
+* Libreria con gli ostacoli della tabella dell'Art. 64, raggruppati come nel
+  regolamento (**Gimkane**, **Barriere**, **Rampe**) e quotati secondo i disegni
+  dell'**Allegato 3**. Accanto a ogni gruppo c'è il contatore delle quote
+  obbligatorie (1 Gimkana, 4 Barriere, 3 Rampe di almeno 2 tipologie).
 * Ogni sagoma vista dall'alto riporta **nome e altezza all'interno** e le
   **dimensioni sui lati** (lunghezza e larghezza in metri).
 * Posizionamento: tocco sulla mappa, trascinamento lungo il percorso
@@ -42,9 +45,11 @@ Firebase (Hosting + Authentication + Firestore) per il salvataggio online.
 * Accanto a ogni struttura compare **Δ**, la distanza dall'ostacolo precedente.
 
 ### Controllo delle distanze (verde / rosso)
-* Fra due ostacoli consecutivi devono esserci fra **3 m e 25 m** (valori
-  modificabili nella scheda *Regole*). **Anche una curva è un ostacolo**, così
-  come la griglia di partenza o la rampa di lancio.
+* Fra due ostacoli consecutivi devono esserci fra **5 m e 25 m** (Art. 65,
+  valori modificabili nella scheda *Regole*). **Anche una curva è un ostacolo**,
+  così come la griglia di partenza o la rampa di lancio.
+* Il **primo ostacolo** si misura dalla **linea di partenza** e non può stare a
+  meno di **12 m**; fra l'**ultimo ostacolo e l'arrivo** servono almeno **10 m**.
 * Dentro l'intervallo → bordo **verde**. Fuori → bordo **rosso**, con il motivo
   scritto nella scheda della struttura e nella scheda *Verifica*.
 * **Nessun controllo blocca il posizionamento**: la struttura resta dove l'hai
@@ -55,11 +60,15 @@ Firebase (Hosting + Authentication + Firestore) per il salvataggio online.
 
 ### Partenza
 * **Roller cross** — griglia con *4 corsie da 1,25 m* (fronte 5 m), box di
-  partenza da *1,00 × 1,25 m* ciascuno, e dopo la linea *5 m* di corsie guidate
+  partenza da *1,00 × 1,25 m* ciascuno, e dopo la linea *5 m* di corsie separate
   che seguono il tracciato. Numero di corsie, larghezze e profondità sono
   modificabili; il totale è ricalcolato al volo.
-* **Skate cross** — la partenza è su una **rampa di lancio** (nome, lunghezza,
-  larghezza, altezza configurabili): niente box né corsie.
+* **Skate cross** — la partenza è su una **rampa di lancio**, preimpostata con le
+  quote dell'Allegato 3 (piattaforma 2,00 m a quota 2,00 m, scivolo 4,80 m a 25°,
+  ingombro a terra 6,35 m): niente box né corsie.
+* **Categoria** (Giovanissimi/Esordienti, Ragazzi/Allievi/Master,
+  Juniores/Seniores): imposta le altezze normate di salti a secco (30/40/50 cm)
+  e sottopassi (90/110 cm) e aggiorna gli ostacoli già posati.
 * In entrambi i casi la zona di partenza vale come primo ostacolo: la distanza
   della prima struttura si misura dalla fine delle corsie guidate (o della rampa).
 
@@ -83,6 +92,23 @@ strutture e **le differenze rispetto a quanto hai chiesto** (per esempio
 «lunghezza 174 m invece di 220 m» oppure «mancano 2 curve R8»): così si vede
 subito cosa l'area riesce davvero a contenere. *Usa questa opzione* la carica
 nell'editor, dove resta modificabile come un percorso disegnato a mano.
+
+### Verifica di conformità
+La scheda *Verifica* confronta il progetto con il Regolamento Tecnico e elenca
+ogni controllo con esito e riferimento all'articolo. Per il roller cross:
+lunghezza 250–300 m, rettilineo di partenza ≥ 20 m, larghezze 5 m / 3,5 m,
+almeno 2 curve a destra e 2 a sinistra, prima curva vicina alla partenza larga
+5 m e di ampiezza > 50°, 12 m dalla partenza al primo ostacolo, 10 m
+dall'ultimo ostacolo all'arrivo, quote degli ostacoli per gruppo, misure minime
+delle rampe (larghezza 1,80 m, altezza 0,40 m), altezze per categoria, gimkane
+su rettilineo largo almeno 5 m. Per lo skate cross (Art. 102): larghezza 5 m,
+4 gate su rampa alta al massimo 2 m, almeno 2 curve di raggio < 5 m, 3 rampe con
+h ≥ 0,50 m e 2 funbox/bank to bank alti 1,50–2 m e larghi 4 m.
+
+Anche il generatore automatico lavora con questi vincoli: senza una lunghezza
+obiettivo punta all'intervallo 250–300 m, alterna le curve per averne almeno 2
+per lato, lascia il tratto di arrivo e distribuisce gli ostacoli coprendo le
+quote dei tre gruppi.
 
 ### Salvataggio ed export
 * Salvataggio automatico nel browser a ogni modifica, più l'elenco dei progetti
@@ -135,6 +161,34 @@ Le regole in `firestore.rules` permettono a ogni utente di leggere e scrivere
 
 ---
 
+## Riferimenti di regolamento
+
+I valori normativi sono raccolti in un unico file, `public/js/regulation.js`,
+così che restino facili da aggiornare quando esce una nuova stagione.
+
+| Voce | Valore | Articolo |
+|---|---|---|
+| Lunghezza totale roller cross | 250–300 m | 65.4 |
+| Larghezza minima percorso | 3,5 m (5 m su partenza e prima curva) | 65.4 |
+| Rettilineo di partenza | min 20 m, largo min 5 m | 65.4 |
+| Corsie separate in partenza | 4 box da 1,00 m × ≥1,25 m, per 5 m dopo la linea | 65.4 |
+| Distanza fra ostacoli | min 5 m — max 25 m | 65.4 |
+| Partenza → primo ostacolo | min 12 m | 65.6 |
+| Ultimo ostacolo → arrivo | min 10 m | 65.4 |
+| Curve obbligatorie | almeno 2 a destra e 2 a sinistra | 65.4 |
+| Curva entro 10 m dal rettilineo iniziale | larga ≥ 5 m, ampiezza > 50° | 65.4 |
+| Rampe | larghezza ≥ 1,80 m, altezza ≥ 0,40 m | 65.4 |
+| Gruppi di ostacoli | ≥1 Gimkana, ≥4 Barriere, ≥3 Rampe di ≥2 tipologie | 64 |
+| Salti a secco / sottopassi | 30-40-50 cm / 90-110 cm secondo la categoria | 65.4 |
+| Gimkane | ≥3 elementi a 3–5 m, su rettilineo largo ≥ 5 m | 65.4 |
+| Skate cross | largh. ≥5 m, 4 gate su rampa ≤2 m, ≥2 curve R<5 m, ≥3 rampe h≥0,50 m, ≥2 funbox h 1,50–2 m e largh. 4 m | 102.2 |
+
+Le quote degli ostacoli vengono dai disegni dell'Allegato 3, che il regolamento
+stesso dichiara *"misure puramente indicative"*: nell'app sono valori di
+partenza e si possono cambiare per ogni singolo ostacolo.
+
+Fonte: *FISR — Regolamento Tecnico Inline Freestyle 2025-2026 (v. 19-1-2026)*.
+
 ## Struttura del codice
 
 ```
@@ -143,6 +197,7 @@ public/
   css/app.css             interfaccia (desktop + cassetto mobile)
   css/svg.css             stili del disegno (inclusi anche negli export)
   js/geometry.js          vettori, poligoni, polilinee
+  js/regulation.js        valori del Regolamento Tecnico FISR 2025-2026
   js/model.js             schema del progetto, libreria strutture, default
   js/track.js             geometria del tracciato, ostacoli, validazione
   js/generator.js         generazione automatica delle varianti

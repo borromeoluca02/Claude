@@ -5,6 +5,7 @@
 
 import * as G from './geometry.js';
 import { libraryItem } from './model.js';
+import { ROLLER, SKATE, categoryInfo } from './regulation.js';
 
 /** numero formattato all'italiana, per i messaggi */
 const n2 = (v, d = 2) => G.round(v, d).toString().replace('.', ',');
@@ -296,22 +297,38 @@ export function analyze(project) {
       prev = ob;
       continue;
     }
-    const gap = ob.sStart - prev.sEnd;
+    // il primo ostacolo si misura dalla LINEA di partenza (Art. 65: minimo 12 m),
+    // gli altri dalla fine dell'ostacolo precedente
+    const fromStart = prev.kind === 'start' && rules.firstObstacleMin > 0;
+    const gap = fromStart ? ob.sStart : ob.sStart - prev.sEnd;
+    const minGap = fromStart ? rules.firstObstacleMin : rules.minGap;
+    const prevLabel = fromStart ? 'linea di partenza' : prev.label;
     const st = setStatus(ob.id, 'ok');
     st.gap = gap;
-    st.prevLabel = prev.label;
-    if (gap < rules.minGap - 1e-6) {
-      setStatus(ob.id, 'bad', `Distanza da "${prev.label}" di ${n2(gap, 2)} m: sotto il minimo di ${rules.minGap} m`);
-      issues.push({ level: 'bad', target: ob.id, text: `${ob.label}: solo ${n2(gap, 2)} m da ${prev.label} (min ${rules.minGap} m)` });
+    st.prevLabel = prevLabel;
+    st.fromStart = fromStart;
+    if (gap < minGap - 1e-6) {
+      setStatus(ob.id, 'bad', `Distanza da "${prevLabel}" di ${n2(gap, 2)} m: sotto il minimo di ${minGap} m`);
+      issues.push({ level: 'bad', target: ob.id, text: `${ob.label}: solo ${n2(gap, 2)} m da ${prevLabel} (min ${minGap} m)` });
     } else if (gap > rules.maxGap + 1e-6) {
-      setStatus(ob.id, 'bad', `Distanza da "${prev.label}" di ${n2(gap, 2)} m: oltre il massimo di ${rules.maxGap} m`);
-      issues.push({ level: 'bad', target: ob.id, text: `${ob.label}: ${n2(gap, 2)} m da ${prev.label} (max ${rules.maxGap} m)` });
+      setStatus(ob.id, 'bad', `Distanza da "${prevLabel}" di ${n2(gap, 2)} m: oltre il massimo di ${rules.maxGap} m`);
+      issues.push({ level: 'bad', target: ob.id, text: `${ob.label}: ${n2(gap, 2)} m da ${prevLabel} (max ${rules.maxGap} m)` });
     }
     if (ob.offTrack) {
       setStatus(ob.id, 'warn', 'Struttura lontana dall\'asse del percorso');
       issues.push({ level: 'warn', target: ob.id, text: `${ob.label}: posizionata fuori dall'asse del percorso` });
     }
     prev = ob;
+  }
+
+  /* 1b. distanza dell'ultimo ostacolo dalla linea di arrivo */
+  const lastObstacle = obstacles.filter((o) => o.kind !== 'start').slice(-1)[0];
+  if (lastObstacle && rules.finishMin > 0) {
+    const d = baked.totalLength - lastObstacle.sEnd;
+    if (d < rules.finishMin - 1e-6) {
+      setStatus(lastObstacle.id, 'bad', `Distanza dall'arrivo di ${n2(d, 2)} m: sotto il minimo di ${rules.finishMin} m`);
+      issues.push({ level: 'bad', target: lastObstacle.id, text: `${lastObstacle.label}: ${n2(d, 2)} m dall'arrivo (min ${rules.finishMin} m)` });
+    }
   }
 
   /* 2. larghezza corsia */
@@ -395,6 +412,8 @@ export function analyze(project) {
     straightLength: baked.elements.filter((e) => e.type === 'straight').reduce((a, e) => a + e.length, 0),
     curveLength: curves.reduce((a, e) => a + e.length, 0),
     curveCount: curves.length,
+    curvesRight: curves.filter((c) => c.dir === 'right').length,
+    curvesLeft: curves.filter((c) => c.dir === 'left').length,
     curvesByRadius: byRadius,
     structureCount: project.structures.length,
     minWidth: minW, maxWidth: maxW,
@@ -429,7 +448,153 @@ export function analyze(project) {
     });
   }
 
-  return { baked, obstacles, status, issues, stats, checks, outside };
+  const regulation = rules.regCheck === false ? [] : regulationChecks(project, baked, obstacles, stats);
+  return { baked, obstacles, status, issues, stats, checks, outside, regulation };
+}
+
+/**
+ * Conformità al Regolamento Tecnico FISR 2025-2026.
+ * Restituisce un elenco di controlli { label, ok, detail, ref }: è una
+ * fotografia, non un blocco. I controlli non applicabili vengono omessi.
+ */
+export function regulationChecks(project, baked, obstacles, stats) {
+  const out = [];
+  const add = (label, ok, detail, ref) => out.push({ label, ok: !!ok, detail, ref });
+  const structs = project.structures;
+  const els = baked.elements;
+  const arcs = els.filter((e) => e.type === 'arc');
+
+  if (project.discipline === 'roller') {
+    const R = ROLLER;
+    add('Lunghezza totale 250–300 m',
+      baked.totalLength >= R.totalLengthMin && baked.totalLength <= R.totalLengthMax,
+      `${n2(baked.totalLength, 1)} m`, 'Art. 65.4');
+
+    // rettilineo di partenza: primo elemento rettilineo, almeno 20 m
+    const first = els[0];
+    const startStraight = first && first.type === 'straight' ? first.length : 0;
+    add('Rettilineo di partenza ≥ 20 m', startStraight >= R.startStraightMinLength,
+      first ? (first.type === 'straight' ? `${n2(startStraight, 1)} m` : 'il percorso inizia con una curva') : 'percorso vuoto', 'Art. 65.4');
+
+    // larghezza: 5 m su partenza e prima curva, 3,5 m sul resto
+    const firstCurveIdx = els.findIndex((e) => e.type === 'arc');
+    const startZone = firstCurveIdx < 0 ? els : els.slice(0, firstCurveIdx + 1);
+    const restZone = firstCurveIdx < 0 ? [] : els.slice(firstCurveIdx + 1);
+    const minStart = startZone.length ? Math.min(...startZone.map((e) => Math.min(e.widthStart, e.widthEnd))) : null;
+    const minRest = restZone.length ? Math.min(...restZone.map((e) => Math.min(e.widthStart, e.widthEnd))) : null;
+    if (minStart !== null) {
+      add('Larghezza partenza e prima curva ≥ 5 m', minStart >= R.startLaneWidthMin - 1e-6, `${n2(minStart, 2)} m`, 'Art. 65.4');
+    }
+    if (minRest !== null) {
+      add('Larghezza del resto del percorso ≥ 3,5 m', minRest >= R.laneWidthMin - 1e-6, `${n2(minRest, 2)} m`, 'Art. 65.4');
+    }
+
+    // curve: almeno 2 a destra e 2 a sinistra
+    const nR = arcs.filter((a) => a.dir === 'right').length;
+    const nL = arcs.filter((a) => a.dir === 'left').length;
+    add('Almeno 2 curve a destra e 2 a sinistra', nR >= R.curvesRightMin && nL >= R.curvesLeftMin,
+      `${nR} a destra, ${nL} a sinistra`, 'Art. 65.4');
+
+    // prima curva vicina al rettilineo iniziale
+    if (firstCurveIdx >= 0 && first && first.type === 'straight') {
+      const c = els[firstCurveIdx];
+      const distFromStraightEnd = c.startStation - first.endStation;
+      if (firstCurveIdx === 1 || distFromStraightEnd <= R.firstCurveWindow + 1e-6) {
+        const w = Math.min(c.widthStart, c.widthEnd);
+        add(`Curva entro ${R.firstCurveWindow} m dal rettilineo: largh. ≥ 5 m e ampiezza > 50°`,
+          w >= R.firstCurveMinWidth - 1e-6 && c.angle > R.firstCurveMinAngle,
+          `R${n2(c.radius, 1)} · ${n2(c.angle, 0)}° · larga ${n2(w, 2)} m`, 'Art. 65.4');
+      }
+    }
+
+    // primo ostacolo e arrivo
+    const obs = obstacles.filter((o) => o.kind !== 'start');
+    if (obs.length) {
+      add('Partenza → primo ostacolo ≥ 12 m', obs[0].sStart >= R.firstObstacleMin - 1e-6,
+        `${n2(obs[0].sStart, 1)} m (${obs[0].label})`, 'Art. 65.6');
+      const dFin = baked.totalLength - obs[obs.length - 1].sEnd;
+      add('Ultimo ostacolo → arrivo ≥ 10 m', dFin >= R.finishMin - 1e-6,
+        `${n2(dFin, 1)} m`, 'Art. 65.4');
+    }
+
+    // gruppi di ostacoli
+    const byGroup = { gimkane: 0, barriere: 0, rampe: 0 };
+    const rampTypes = new Set();
+    for (const s of structs) {
+      const g = s.group || libraryItem(s.key).group;
+      if (byGroup[g] !== undefined) byGroup[g]++;
+      if (g === 'rampe') rampTypes.add(s.key);
+    }
+    add('Almeno 1 ostacolo del gruppo Gimkane', byGroup.gimkane >= R.groups.gimkane, `${byGroup.gimkane}`, 'Art. 64');
+    add('Almeno 4 ostacoli del gruppo Barriere', byGroup.barriere >= R.groups.barriere, `${byGroup.barriere}`, 'Art. 64');
+    add('Almeno 3 Rampe di almeno 2 tipologie',
+      byGroup.rampe >= R.groups.rampe && rampTypes.size >= R.groups.rampeTipologie,
+      `${byGroup.rampe} rampe, ${rampTypes.size} tipologie`, 'Art. 64');
+
+    // misure minime delle rampe
+    const ramps = structs.filter((s) => (s.group || libraryItem(s.key).group) === 'rampe');
+    if (ramps.length) {
+      const badW = ramps.filter((s) => s.width < R.rampWidthMin - 1e-6);
+      const badH = ramps.filter((s) => s.height < R.rampHeightMin - 1e-6);
+      add('Rampe: larghezza ≥ 1,80 m e altezza ≥ 0,40 m', !badW.length && !badH.length,
+        badW.length || badH.length ? `${badW.length} strette, ${badH.length} basse` : `${ramps.length} rampe a norma`, 'Art. 65.4');
+    }
+
+    // altezze per categoria
+    const cat = categoryInfo(project.category);
+    const jumps = structs.filter((s) => s.key === 'saltosecco');
+    if (jumps.length) {
+      const okJ = jumps.every((s) => Math.abs(s.height - cat.dryJump) <= 0.02 + 1e-6);
+      add(`Salti a secco a ${n2(cat.dryJump * 100, 0)} cm (${cat.label})`, okJ,
+        jumps.map((s) => n2(s.height * 100, 0) + ' cm').join(', '), 'Art. 65.4');
+      // due salti a secco consecutivi: minimo 10 m
+      const sorted = jumps.slice().sort((a, b) => a.station - b.station);
+      for (let i = 1; i < sorted.length; i++) {
+        const d = sorted[i].station - sorted[i - 1].station;
+        const between = obstacles.some((o) => o.kind !== 'start' && o.sStart > sorted[i - 1].station && o.sEnd < sorted[i].station);
+        if (!between && d < ROLLER.dryJumpConsecutiveMin) {
+          add('Due salti a secco consecutivi ≥ 10 m', false, `${n2(d, 1)} m fra loro`, 'Art. 65.4');
+          break;
+        }
+      }
+    }
+    const unders = structs.filter((s) => s.key === 'sottopasso' || s.key === 'tunnel');
+    if (unders.length) {
+      const okU = unders.every((s) => s.height >= cat.underpass - 0.02);
+      add(`Sottopassi ≥ ${n2(cat.underpass * 100, 0)} cm (${cat.label})`, okU,
+        unders.map((s) => n2(s.height * 100, 0) + ' cm').join(', '), 'Art. 65.4');
+    }
+
+    // gimkane: rettilineo largo almeno 5 m (o curva con R ≥ 5 e largh. ≥ 4)
+    const gimk = structs.filter((s) => (s.group || libraryItem(s.key).group) === 'gimkane');
+    if (gimk.length) {
+      const okG = gimk.every((s) => {
+        const f = frameAt(baked, s.station);
+        const el = f.element;
+        if (!el) return false;
+        if (el.type === 'arc') return el.radius >= R.gimkana.inCurveRadiusMin && f.width >= R.gimkana.inCurveWidthMin;
+        return f.width >= R.gimkana.laneWidthMin - 1e-6;
+      });
+      add('Gimkane su rettilineo largo ≥ 5 m (o curva R ≥ 5 m e largh. ≥ 4 m)', okG,
+        `${gimk.length} gimkana/e`, 'Art. 65.4');
+    }
+  } else {
+    const S = SKATE;
+    const minW = els.length ? Math.min(...els.map((e) => Math.min(e.widthStart, e.widthEnd))) : null;
+    if (minW !== null) add('Larghezza minima 5 m', minW >= S.laneWidthMin - 1e-6, `${n2(minW, 2)} m`, 'Art. 102.2');
+    const sr = project.startRamp || {};
+    add('4 gate su rampa di partenza, h max 2 m', !!sr.enabled && sr.height <= S.startRampMaxHeight + 1e-6,
+      sr.enabled ? `rampa h ${n2(sr.height, 2)} m` : 'rampa disattivata', 'Art. 102.2');
+    const tight = arcs.filter((a) => a.radius < S.tightCurves.radiusMax).length;
+    add('Almeno 2 curve con raggio < 5 m', tight >= S.tightCurves.count, `${tight} curve`, 'Art. 102.2');
+    const ramps = structs.filter((s) => (s.group || libraryItem(s.key).group) === 'rampe' && s.height >= S.ramps.heightMin - 1e-6).length;
+    add('Almeno 3 rampe/curve/bank to bank con h ≥ 0,50 m', ramps >= S.ramps.count, `${ramps}`, 'Art. 102.2');
+    const fun = structs.filter((s) => (s.key === 'funbox' || s.key === 'banktobank' || s.key === 'banktobankvar')
+      && s.height >= S.funbox.heightMin - 1e-6 && s.height <= S.funbox.heightMax + 1e-6
+      && s.width >= S.funbox.width - 1e-6).length;
+    add('Almeno 2 funbox o bank to bank h 1,50–2 m e largh. 4 m', fun >= S.funbox.count, `${fun}`, 'Art. 102.2');
+  }
+  return out;
 }
 
 export function statusLevel(status, id) {
