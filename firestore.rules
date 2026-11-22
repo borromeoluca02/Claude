@@ -1,0 +1,22 @@
+rules_version = '2';
+
+/* Ogni utente vede e scrive soltanto i propri progetti.
+   Percorso dei documenti: users/{uid}/projects/{projectId} */
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{uid}/projects/{projectId} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasAll(['id', 'name'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() < 200
+        && request.resource.size() < 1000000;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

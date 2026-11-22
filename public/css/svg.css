@@ -1,0 +1,74 @@
+/* svg.css — stili del disegno. Vengono incorporati anche negli export
+   SVG/PNG, quindi qui dentro va solo ciò che serve al disegno. */
+svg#canvas, svg.thumb { display: block; }
+.grid line.g1 { stroke: #dfe6ee; stroke-width: 1; }
+.grid line.g5 { stroke: #c3cfdc; stroke-width: 1; }
+
+.areaFill { fill: #ffffff; stroke: #4a5a6b; stroke-width: 1.6; stroke-dasharray: 10 6; }
+.vtx { fill: #fff; stroke: #0b6ea8; stroke-width: 2.2; cursor: grab; }
+.vtxLbl { fill: #0b6ea8; font-size: 10px; }
+.areaDim { fill: #4a5a6b; font-size: 11px; font-weight: 600; }
+
+.lane { fill: #e8eef5; stroke: none; }
+.laneOut { stroke: #e03131; stroke-width: 6; opacity: .22; fill: none; stroke-linecap: round; }
+.edge { fill: none; stroke-width: 2.4; stroke-linecap: round; }
+.edge.ok { stroke: #1f7a3f; }
+.edge.warn { stroke: #c97a05; }
+.edge.bad { stroke: #d12b2b; }
+.edge.sel { stroke-width: 4; }
+.axis { fill: none; stroke: #2b3a4a; stroke-width: 1.2; stroke-dasharray: 7 6; opacity: .75; }
+.finish { stroke: #111; stroke-width: 4; stroke-dasharray: 5 4; }
+.finishLbl { fill: #111; font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+
+.startBox { fill: #fdf6d8; stroke: #8a7520; stroke-width: 1.6; }
+.startBox.warn { fill: #fdeccf; stroke: #c97a05; }
+.startBox.bad { fill: #fbe0e0; stroke: #d12b2b; }
+.laneLine { fill: none; stroke: #8a7520; stroke-width: 1.3; stroke-dasharray: 6 5; opacity: .9; }
+.startLine { stroke: #111; stroke-width: 4.5; }
+.boxNum { fill: #6b5a12; font-size: 12px; font-weight: 700; }
+.startLbl { fill: #6b5a12; font-size: 11px; font-weight: 700; }
+.startLbl.dim { font-weight: 500; opacity: .85; }
+
+.struct { fill: rgba(31,122,63,.14); stroke: #1f7a3f; stroke-width: 2.2; }
+.struct.warn { fill: rgba(201,122,5,.16); stroke: #c97a05; }
+.struct.bad { fill: rgba(209,43,43,.16); stroke: #d12b2b; }
+.struct.sel { stroke-width: 3.6; }
+.struct.startRamp { fill: rgba(11,110,168,.14); stroke: #0b6ea8; }
+.arrow { stroke: #1f7a3f; stroke-width: 2; marker-end: none; opacity: .8; }
+
+.lbl { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; paint-order: stroke fill; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
+.stName { fill: #14341f; font-size: 12px; font-weight: 700; }
+.stName.small { font-size: 10px; }
+.stH { fill: #14341f; font-size: 11px; }
+.stDim { fill: #334; font-size: 10px; font-weight: 600; }
+.gapLbl { font-size: 10.5px; font-weight: 700; fill: #1f7a3f; }
+.gapLbl.bad { fill: #d12b2b; }
+.gapLbl.warn { fill: #c97a05; }
+
+.elLbl { fill: #2b3a4a; font-size: 10.5px; font-weight: 600; }
+.elLbl.bad { fill: #d12b2b; }
+.elLbl.warn { fill: #c97a05; }
+.wLbl { font-size: 10px; font-weight: 600; fill: #1f7a3f; }
+.wLbl.bad { fill: #d12b2b; }
+.stationLbl { font-size: 9.5px; fill: #7a8794; }
+.widthTick { stroke: #2b3a4a; stroke-width: 1; opacity: .5; }
+.totalBg { fill: #fff; stroke: #2b3a4a; stroke-width: 1.4; opacity: .95; }
+.totalLbl { fill: #16202c; font-size: 13px; font-weight: 800; stroke-width: 0; }
+.totalSub { fill: #51606e; font-size: 10.5px; stroke-width: 0; }
+
+.handles .h { fill: #fff; stroke: #0b6ea8; stroke-width: 2.2; cursor: grab; }
+.handles .h.node { stroke: #2b3a4a; }
+.handles .h.node.sel { stroke: #0b6ea8; stroke-width: 3; }
+.handles .h.start { fill: #0b6ea8; stroke: #fff; }
+.handles .h.rot { fill: #e8f2f8; }
+.hLink { stroke: #0b6ea8; stroke-width: 1.2; stroke-dasharray: 4 3; }
+.arcCenter { fill: #0b6ea8; }
+
+.scaleBar line { stroke: #2b3a4a; stroke-width: 1.6; }
+.scaleTxt { fill: #2b3a4a; font-size: 10.5px; font-weight: 600; }
+
+svg.thumb .areaFill { stroke-width: 1; stroke-dasharray: 4 3; }
+svg.thumb .edge { stroke-width: 1.2; }
+svg.thumb .axis { stroke-width: .7; }
+svg.thumb .struct { stroke-width: 1; }
+svg.thumb .startBox { stroke-width: .8; }

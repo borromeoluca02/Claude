@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16202c">
+<title>Cross Builder — percorsi roller &amp; skate cross</title>
+<meta name="description" content="Configuratore 2D per percorsi di roller cross e skate cross: area a piacere, percorso custom o generato, controllo delle distanze fra ostacoli.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/svg.css">
+<script src="js/firebase-config.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo">⛸</span><span>Cross<b>Builder</b></span></div>
+  <input id="prjName" class="prjName" aria-label="Nome del progetto" placeholder="Nome del percorso">
+  <div class="seg small" id="discSeg">
+    <button class="segb" data-act="discipline:roller">Roller</button>
+    <button class="segb" data-act="discipline:skate">Skate</button>
+  </div>
+  <div class="spacer"></div>
+  <button class="tbtn" data-act="undo" title="Annulla (Ctrl+Z)">↶</button>
+  <button class="tbtn" data-act="redo" title="Ripeti (Ctrl+Shift+Z)">↷</button>
+  <button class="tbtn" data-act="loc.save" title="Salva">💾</button>
+  <button class="tbtn" data-act="exp.png" title="Esporta PNG">🖼</button>
+  <button class="tbtn panelToggle" id="panelToggle" title="Pannello">☰</button>
+</header>
+
+<main>
+  <div class="stage" id="stage">
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+
+    <div class="floatTools">
+      <button class="ft" data-act="view.zoomIn" title="Ingrandisci">＋</button>
+      <button class="ft" data-act="view.zoomOut" title="Riduci">−</button>
+      <button class="ft" data-act="view.fit" title="Inquadra tutto">⤢</button>
+      <button class="ft" data-act="labels.toggle" title="Mostra/nascondi quote">🔠</button>
+      <button class="ft" data-act="snap.toggle" title="Aggancio alla griglia">⊞</button>
+      <button class="ft" data-act="area.toggleEdit" title="Modifica vertici area">◇</button>
+      <button class="ft" data-act="tool:draw" title="Disegna percorso">✏️</button>
+    </div>
+
+    <div class="hintBar" id="hintBar" hidden></div>
+    <div class="statusbar" id="status"></div>
+    <div class="toast" id="toast" hidden></div>
+  </div>
+
+  <aside class="panel" id="panel">
+    <div class="panelGrip" id="panelGrip"></div>
+    <nav class="tabs" id="tabs"></nav>
+    <div class="panelBody" id="panelBody"></div>
+  </aside>
+</main>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
