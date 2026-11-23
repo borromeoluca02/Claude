@@ -923,6 +923,12 @@ function computeGhost(wp) {
   for (const o of a.outside || []) {
     if (o.to >= from - 1e-6) { level = 'bad'; reasons.push('Il tratto esce dall\'area disponibile'); break; }
   }
+  // raccordo molto stretto: si vede prima di cliccare
+  const tight = built.els.find((e) => e.type === 'arc' && e.radius < 1);
+  if (tight) {
+    if (level === 'ok') level = 'warn';
+    reasons.push(`Curva molto stretta: raggio interno ${fmtM(tight.radius, 2)}`);
+  }
   state.ghost = {
     left: left.filter(keep), right: right.filter(keep), samples: a.baked.samples.filter(keep),
     length: a.baked.totalLength - from, total: a.baked.totalLength,

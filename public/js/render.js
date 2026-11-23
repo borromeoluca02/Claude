@@ -157,14 +157,14 @@ function corridor(state, S) {
   }
 
   // bordi, un path per elemento così da colorarli secondo lo stato
-  for (const el of baked.elements) {
+  baked.elements.forEach((el, ei) => {
     const lvl = (analysis.status[el.id] && analysis.status[el.id].level) || 'ok';
-    const l = left.filter((p) => p.s >= el.startStation - 1e-6 && p.s <= el.endStation + 1e-6);
-    const r = right.filter((p) => p.s >= el.startStation - 1e-6 && p.s <= el.endStation + 1e-6);
+    const l = left.filter((p) => p.ei === ei);
+    const r = right.filter((p) => p.ei === ei);
     const selCls = selection && selection.kind === 'element' && selection.id === el.id ? ' sel' : '';
     s += `<path class="edge ${lvl}${selCls}" data-pick="element" data-id="${el.id}" d="${pathOf(S, l)}"/>`;
     s += `<path class="edge ${lvl}${selCls}" data-pick="element" data-id="${el.id}" d="${pathOf(S, r)}"/>`;
-  }
+  });
 
   // asse
   s += `<path class="axis" d="${pathOf(S, baked.samples)}"/>`;

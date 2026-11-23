@@ -100,25 +100,47 @@ export function frameAt(baked, s) {
 
 export function widthAt(baked, s) { return frameAt(baked, s).width; }
 
-/** campiona l'asse: [{x,y,s,heading,width}] */
+/**
+ * Campiona l'asse elemento per elemento: [{x,y,s,heading,width,ei}].
+ * Ogni elemento contribuisce sempre i propri due estremi, così i bordi
+ * disegnati combaciano esattamente ai giunti e nessun tratto resta senza
+ * campioni. Campionare a passo costante sull'intero percorso lasciava invece
+ * buchi fino a mezzo metro, che si vedevano come carreggiate disallineate.
+ */
 export function sampleCenterline(baked, step = 0.4) {
   const out = [];
-  const n = Math.max(2, Math.ceil(baked.totalLength / step) + 1);
-  for (let i = 0; i < n; i++) {
-    const s = (i / (n - 1)) * baked.totalLength;
-    const f = frameAt(baked, s);
-    out.push({ x: f.point.x, y: f.point.y, s, heading: f.heading, width: f.width });
+  if (!baked.elements.length) {
+    out.push({ x: baked.startPoint.x, y: baked.startPoint.y, s: 0, heading: baked.startHeading, width: 5, ei: -1 });
+    return out;
   }
+  baked.elements.forEach((el, ei) => {
+    const n = Math.max(2, Math.ceil(el.length / step) + 1);
+    const rAxis = el.type === 'arc' ? el.length / Math.abs(el.sweep || 1) : 0;
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      const width = G.lerp(el.widthStart, el.widthEnd, t);
+      let point, heading;
+      if (el.type === 'arc') {
+        const a = el.startAngle + el.sweep * t;
+        point = add(el.center, { x: rAxis * Math.cos(a), y: rAxis * Math.sin(a) });
+        heading = el.startHeading + el.sweep * t;
+      } else {
+        point = add(el.startPoint, mul(dirOf(el.startHeading), el.length * t));
+        heading = el.startHeading;
+      }
+      out.push({ x: point.x, y: point.y, s: el.startStation + el.length * t, heading, width, ei });
+    }
+  });
   return out;
 }
 
-/** bordi destro/sinistro della corsia */
+/** bordi destro/sinistro della corsia, con l'indice dell'elemento di origine */
 export function edgePaths(baked, step = 0.4) {
   const left = [], right = [];
   for (const sm of baked.samples.length ? baked.samples : sampleCenterline(baked, step)) {
     const n = leftOf(sm.heading);
-    left.push({ x: sm.x + n.x * sm.width / 2, y: sm.y + n.y * sm.width / 2, s: sm.s });
-    right.push({ x: sm.x - n.x * sm.width / 2, y: sm.y - n.y * sm.width / 2, s: sm.s });
+    left.push({ x: sm.x + n.x * sm.width / 2, y: sm.y + n.y * sm.width / 2, s: sm.s, ei: sm.ei });
+    right.push({ x: sm.x - n.x * sm.width / 2, y: sm.y - n.y * sm.width / 2, s: sm.s, ei: sm.ei });
   }
   return { left, right };
 }
@@ -753,13 +775,31 @@ export function extendTo(baked, P, R = 8, width = 5) {
   let d = G.dist(P, C);
   // il punto è dentro il cerchio di volta: stringi il raggio
   if (d < r * 1.02) {
-    r = Math.max(minAxis, G.len(v) / 2.4);
+    // il punto è dentro il cerchio di volta: invece di stringere a caso, si usa
+    // l'unico arco che parte tangente e passa esattamente per il punto
+    const den = 2 * G.dot(v, n);
+    if (Math.abs(den) > 1e-6) {
+      const rExact = G.dot(v, v) / den;              // positivo = curva a sinistra
+      const side = rExact > 0 ? 'left' : 'right';
+      const rr = Math.max(minAxis, Math.abs(rExact));
+      const sg = rExact > 0 ? 1 : -1;
+      const Cc = add(S, mul(n, sg * rr));
+      const a0 = Math.atan2(S.y - Cc.y, S.x - Cc.x);
+      const a1 = Math.atan2(P.y - Cc.y, P.x - Cc.x);
+      let sw = (a1 - a0) * sg;
+      while (sw < 0) sw += 2 * Math.PI;
+      while (sw > 2 * Math.PI) sw -= 2 * Math.PI;
+      const ang = sw * G.RAD;
+      // un arco esatto va bene finché non obbliga a girare su se stessi:
+      // oltre i 200° conviene virare stretto e poi proseguire dritto
+      if (ang <= 200) {
+        return [mk('arc', { radius: G.round(rr - width / 2, 2), angle: G.round(G.clamp(ang, 1, 200), 1), dir: side })];
+      }
+    }
+    r = minAxis;
     C = add(S, mul(n, sgn * r));
     d = G.dist(P, C);
-    if (d < r * 1.02) {
-      // ripiegamento su posto: arco secco di 150°
-      return [mk('arc', { radius: G.round(r - width / 2, 2), angle: 150, dir: dirSide })];
-    }
+    if (d < r * 1.02) return [mk('arc', { radius: G.round(r - width / 2, 2), angle: 150, dir: dirSide })];
   }
   const tanLen = Math.sqrt(Math.max(0, d * d - r * r));
   const a0 = Math.atan2(S.y - C.y, S.x - C.x);
