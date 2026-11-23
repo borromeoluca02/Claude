@@ -173,9 +173,17 @@ function trackPanel(state) {
     const widths = num('Largh. inizio', `track.elements.${i}.widthStart`, el.widthStart, { step: 0.25, min: 0.5 }) +
       num('Largh. fine', `track.elements.${i}.widthEnd`, el.widthEnd, { step: 0.25, min: 0.5 });
     const reasons = (st[el.id] && st[el.id].reasons || []).map((r) => `<li>${e(r)}</li>`).join('');
+    // su una curva si esplicitano i tre raggi, per non confondere interno e asse
+    let radiiNote = '';
+    if (el.type === 'arc') {
+      const axis = b.sweep ? Math.abs(b.length / b.sweep) : (+el.radius + (+el.widthStart + +el.widthEnd) / 4);
+      const halfW = (+el.widthStart + +el.widthEnd) / 4;
+      radiiNote = `<p class="hint small">Raggio <b>interno ${fmtM(el.radius, 2)}</b> · asse ${fmtM(axis, 2)} · esterno ${fmtM(axis + halfW, 2)}${el.angle >= 179 ? ` · bordi interni distanti ${fmtM(2 * el.radius, 2)}` : ''}</p>`;
+    }
     return `<div class="elCard ${lvl}${selCls}" data-el="${el.id}">
       ${head}
       <div class="flds">${fields}${widths}</div>
+      ${radiiNote}
       ${reasons ? `<ul class="reasons">${reasons}</ul>` : ''}
       <div class="row tight">
         ${btn('el.up', '↑', 'mini', el.id)}${btn('el.down', '↓', 'mini', el.id)}
