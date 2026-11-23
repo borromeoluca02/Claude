@@ -208,7 +208,7 @@ function startZone(state, S) {
     s += `<line class="startLine" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"/>`;
     if (view.scale > 5) {
       const ang0 = screenAngle(baked.startHeading);
-      const up = S(add(gate.center, mul(leftOf(baked.startHeading), gate.totalWidth / 2 + 1.3)));
+      const up = S(add(gate.center, mul(leftOf(baked.startHeading), gate.totalWidth / 2 + 2.3)));
       const gateTxt = view.scale > 9
         ? `PARTENZA · ${gate.lanes} box ${fmt(gate.depth, 2)} × ${fmt(gate.laneWidth, 2)} m = fronte ${fmtM(gate.totalWidth, 2)}`
         : `PARTENZA · fronte ${fmtM(gate.totalWidth, 2)}`;
@@ -254,6 +254,27 @@ function structures(state, S) {
 function fitText(txt, pxWidth, perChar = 5.6) {
   const maxChars = Math.max(3, Math.floor(pxWidth / perChar));
   return txt.length <= maxChars ? txt : txt.slice(0, maxChars - 1) + '…';
+}
+
+/** spezza il testo in righe sulle parole, senza mai troncare a metà */
+function wrapWords(txt, maxChars, maxLines = 3) {
+  const words = String(txt).split(/\s+/).filter(Boolean);
+  const lines = [];
+  let cur = '';
+  for (const w of words) {
+    const next = cur ? cur + ' ' + w : w;
+    if (next.length <= maxChars || !cur) { cur = next; continue; }
+    lines.push(cur);
+    cur = w;
+    if (lines.length === maxLines) break;
+  }
+  if (cur && lines.length < maxLines) lines.push(cur);
+  // se è rimasto fuori qualcosa lo si segnala sull'ultima riga
+  const used = lines.join(' ').split(/\s+/).length;
+  if (used < words.length && lines.length) {
+    lines[lines.length - 1] = lines[lines.length - 1].replace(/[.,;:]?$/, '…');
+  }
+  return lines;
 }
 
 /* nome + altezza dentro la sagoma, quote sui lati, distanza dal precedente */
@@ -308,9 +329,11 @@ function trackLabels(state, S, detail) {
   const baked = analysis.baked;
   if (!baked.elements.length) return '';
   const k = view.scale;
+  const sts = analysis.stats;
   let s = '<g class="trackLbl">';
 
-  // lunghezza totale: a metà asse, spostata verso l'interno per non coprire la pista
+  /* riquadro dello sviluppo: si calcola prima per sapere dove cade, ma si
+     disegna per ultimo così nessuna quota ci finisce sopra */
   const mid = frameAt(baked, baked.totalLength / 2);
   const n = leftOf(mid.heading);
   let cx = 0, cy = 0;
@@ -318,54 +341,61 @@ function trackLabels(state, S, detail) {
   cx /= baked.samples.length; cy /= baked.samples.length;
   const toward = G.dot(sub({ x: cx, y: cy }, mid.point), n) >= 0 ? 1 : -1;
   const pm = S(add(mid.point, mul(n, toward * (mid.width / 2 + 2.6))));
-  const sts = analysis.stats;
-  const multi = sts.laps > 1;
-  const bw = multi ? 184 : 152;
-  s += `<rect class="totalBg" x="${(pm.x - bw / 2).toFixed(1)}" y="${(pm.y - 16).toFixed(1)}" width="${bw}" height="32" rx="7"/>`;
-  s += label(pm.x, pm.y - 1, multi
-    ? `Giro ${fmtM(baked.totalLength, 2)} × ${sts.laps} = ${fmtM(sts.raceLength, 2)}`
-    : `Sviluppo asse ${fmtM(baked.totalLength, 2)}`, 'totalLbl', 0, ' text-anchor="middle"');
-  s += label(pm.x, pm.y + 12, `corsia ${fmtM(sts.minWidth, 2)}–${fmtM(sts.maxWidth, 2)}${sts.isClosed ? ' · anello chiuso' : ''}`, 'totalSub', 0, ' text-anchor="middle"');
+  const multi = sts.laps > 1 || sts.extra > 0;
+  const mainTxt = multi
+    ? `Giro ${fmtM(baked.totalLength, 2)}${sts.extra > 0 ? ` + ${fmtM(sts.extra, 0)}` : ` × ${sts.laps}`} = ${fmtM(sts.raceLength, 2)}`
+    : `Sviluppo asse ${fmtM(baked.totalLength, 2)}`;
+  const subTxt = `corsia ${fmtM(sts.minWidth, 2)}–${fmtM(sts.maxWidth, 2)}${sts.isClosed ? ' · anello chiuso' : ''}`;
+  const bw = Math.max(152, mainTxt.length * 7.3 + 26, subTxt.length * 5.8 + 26);
+  const boxRect = { x: pm.x - bw / 2 - 6, y: pm.y - 22, w: bw + 12, h: 44 };
+  const inBox = (p) => p.x > boxRect.x && p.x < boxRect.x + boxRect.w && p.y > boxRect.y && p.y < boxRect.y + boxRect.h;
 
-  if (!detail) return s + '</g>';
-
-  let prevWidth = null;
-  baked.elements.forEach((el, i) => {
-    const lvl = (analysis.status[el.id] && analysis.status[el.id].level) || 'ok';
-    // etichetta dell'elemento solo se c'è spazio sufficiente
-    if (el.length * k > 58) {
-      const f = frameAt(baked, (el.startStation + el.endStation) / 2);
-      const nn = leftOf(f.heading);
-      const p = S(add(f.point, mul(nn, f.width / 2 + 1.5)));
-      const txt = el.type === 'arc'
-        ? `curva R${fmt(el.radius, 1)} · ${fmt(el.angle, 0)}° · ${fmtM(el.length, 2)}`
-        : `rettilineo ${fmtM(el.length, 2)}`;
-      s += label(p.x, p.y, txt, `elLbl ${lvl}`, screenAngle(f.heading), ' text-anchor="middle"');
-    }
-    // quota di larghezza solo dove la corsia cambia (e all'inizio)
-    const changed = prevWidth === null || Math.abs(el.widthStart - prevWidth) > 0.01;
-    if (changed && k > 8) {
-      const f0 = frameAt(baked, el.startStation);
-      const n0 = leftOf(f0.heading);
-      const a = S(add(f0.point, mul(n0, f0.width / 2)));
-      const b = S(sub(f0.point, mul(n0, f0.width / 2)));
-      s += `<line class="widthTick" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"/>`;
-      const pw = S(sub(f0.point, mul(n0, f0.width / 2 + 1.1)));
-      s += label(pw.x, pw.y, fmtM(f0.width, 2), `wLbl ${f0.width < project.rules.minWidth ? 'bad' : 'ok'}`, screenAngle(f0.heading + Math.PI / 2), ' text-anchor="middle"');
-      if (k > 12) {
-        const ps = S(add(f0.point, mul(n0, f0.width / 2 + 1.1)));
-        s += label(ps.x, ps.y, `${fmt(el.startStation, 1)} m`, 'stationLbl', screenAngle(f0.heading + Math.PI / 2), ' text-anchor="middle"');
+  if (detail) {
+    let prevWidth = null;
+    baked.elements.forEach((el, i) => {
+      const lvl = (analysis.status[el.id] && analysis.status[el.id].level) || 'ok';
+      // etichetta dell'elemento solo se c'è spazio e se non finisce sul riquadro
+      if (el.length * k > 58) {
+        const f = frameAt(baked, (el.startStation + el.endStation) / 2);
+        const nn = leftOf(f.heading);
+        const p = S(add(f.point, mul(nn, f.width / 2 + 1.5)));
+        if (!inBox(p)) {
+          const txt = el.type === 'arc'
+            ? `curva R${fmt(el.radius, 1)} · ${fmt(el.angle, 0)}° · ${fmtM(el.length, 2)}`
+            : `rettilineo ${fmtM(el.length, 2)}`;
+          s += label(p.x, p.y, txt, `elLbl ${lvl}`, screenAngle(f.heading), ' text-anchor="middle"');
+        }
       }
-    }
-    // alla fine dell'ultimo elemento, se la corsia è cambiata lungo di esso
-    if (i === baked.elements.length - 1 && Math.abs(el.widthEnd - el.widthStart) > 0.01 && k > 5) {
-      const f1 = frameAt(baked, el.endStation);
-      const n1 = leftOf(f1.heading);
-      const pw = S(sub(f1.point, mul(n1, f1.width / 2 + 1.1)));
-      s += label(pw.x, pw.y, fmtM(f1.width, 2), `wLbl ${f1.width < project.rules.minWidth ? 'bad' : 'ok'}`, screenAngle(f1.heading + Math.PI / 2), ' text-anchor="middle"');
-    }
-    prevWidth = el.widthEnd;
-  });
+      // quota di larghezza solo dove la corsia cambia (e all'inizio)
+      const changed = prevWidth === null || Math.abs(el.widthStart - prevWidth) > 0.01;
+      if (changed && k > 8) {
+        const f0 = frameAt(baked, el.startStation);
+        const n0 = leftOf(f0.heading);
+        const a = S(add(f0.point, mul(n0, f0.width / 2)));
+        const b = S(sub(f0.point, mul(n0, f0.width / 2)));
+        s += `<line class="widthTick" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"/>`;
+        const pw = S(sub(f0.point, mul(n0, f0.width / 2 + 1.1)));
+        if (!inBox(pw)) {
+          s += label(pw.x, pw.y, fmtM(f0.width, 2), `wLbl ${f0.width < project.rules.minWidth ? 'bad' : 'ok'}`, screenAngle(f0.heading + Math.PI / 2), ' text-anchor="middle"');
+        }
+        if (k > 12) {
+          const ps = S(add(f0.point, mul(n0, f0.width / 2 + 1.1)));
+          if (!inBox(ps)) s += label(ps.x, ps.y, `${fmt(el.startStation, 1)} m`, 'stationLbl', screenAngle(f0.heading + Math.PI / 2), ' text-anchor="middle"');
+        }
+      }
+      if (i === baked.elements.length - 1 && Math.abs(el.widthEnd - el.widthStart) > 0.01 && k > 8) {
+        const f1 = frameAt(baked, el.endStation);
+        const n1 = leftOf(f1.heading);
+        const pw = S(sub(f1.point, mul(n1, f1.width / 2 + 1.1)));
+        if (!inBox(pw)) s += label(pw.x, pw.y, fmtM(f1.width, 2), `wLbl ${f1.width < project.rules.minWidth ? 'bad' : 'ok'}`, screenAngle(f1.heading + Math.PI / 2), ' text-anchor="middle"');
+      }
+      prevWidth = el.widthEnd;
+    });
+  }
+
+  s += `<rect class="totalBg" x="${(pm.x - bw / 2).toFixed(1)}" y="${(pm.y - 16).toFixed(1)}" width="${bw.toFixed(1)}" height="32" rx="7"/>`;
+  s += label(pm.x, pm.y - 1, mainTxt, 'totalLbl', 0, ' text-anchor="middle"');
+  s += label(pm.x, pm.y + 12, subTxt, 'totalSub', 0, ' text-anchor="middle"');
   return s + '</g>';
 }
 
@@ -379,7 +409,9 @@ function ghost(state, S) {
   s += `<path class="ghostEdge" d="${pathOf(S, g.right)}"/>`;
   s += `<path class="ghostAxis" d="${pathOf(S, g.samples)}"/>`;
   const end = S(g.samples[g.samples.length - 1]);
-  const bw = 150, bh = g.reasons.length ? 46 : 34;
+  const reasonLines = g.reasons.length ? wrapWords(g.reasons[0], 32, 3) : [];
+  const bw = reasonLines.length ? 214 : 158;
+  const bh = 34 + reasonLines.length * 12;
   // il riquadro resta dentro la finestra anche col puntatore sul bordo
   let bx = end.x + 16, by = end.y - bh - 10;
   if (bx + bw > state.W - 8) bx = end.x - bw - 16;
@@ -389,7 +421,9 @@ function ghost(state, S) {
   s += `<rect class="ghostBg ${g.level}" x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw}" height="${bh}" rx="7"/>`;
   s += label(bx + 9, by + 15, `+ ${fmtM(g.length, 2)}${g.turn ? ` · curva R${fmt(g.turn.radius, 1)}` : ''}`, 'ghostLbl b');
   s += label(bx + 9, by + 28, `sviluppo totale ${fmtM(g.total, 2)}`, 'ghostLbl sub');
-  if (g.reasons.length) s += label(bx + 9, by + 40, g.reasons[0].slice(0, 34), `ghostLbl bad`);
+  reasonLines.forEach((ln, i) => {
+    s += label(bx + 9, by + 40 + i * 12, ln, 'ghostLbl bad');
+  });
   return s + '</g>';
 }
 

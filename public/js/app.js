@@ -1077,6 +1077,8 @@ function boot() {
   window.__api = api;
   window.__commit = commit;
   window.__repaint = () => { paint(); paintPanel(); paintStatus(); };
+  window.__editor = (fit = true) => showEditor(fit);
+  window.__home = () => showHome();
 }
 
 boot();

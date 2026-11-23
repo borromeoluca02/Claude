@@ -18,6 +18,9 @@ const log = (tag, obj) => console.log(tag.padEnd(16), typeof obj === 'string' ? 
 const d = await newPage({ viewport: { width: 1400, height: 900 }, deviceScaleFactor: 1 });
 await d.goto(URL, { waitUntil: 'networkidle' });
 await d.waitForTimeout(500);
+// l'app si apre sulla schermata dei progetti: si entra nell'editor
+await d.evaluate(() => window.__editor && window.__editor());
+await d.waitForTimeout(400);
 await d.screenshot({ path: `${OUT}/01-desktop-start.png` });
 
 log('START', await d.evaluate(() => {
@@ -197,6 +200,8 @@ log('EXPORT-PNG', got ? got.suggestedFilename() : 'nessun download');
 const m = await newPage({ ...devices['iPhone 13'] });
 await m.goto(URL, { waitUntil: 'networkidle' });
 await m.waitForTimeout(600);
+await m.evaluate(() => window.__editor && window.__editor());
+await m.waitForTimeout(400);
 await m.screenshot({ path: `${OUT}/20-mobile-start.png` });
 await m.click('#panelToggle'); await m.waitForTimeout(400);
 await m.screenshot({ path: `${OUT}/21-mobile-panel.png` });
