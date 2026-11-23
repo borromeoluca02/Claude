@@ -197,9 +197,11 @@ export function attachInteractions(svg, api) {
         if (Math.abs(den) > 1e-4) {
           const r = G.dot(v, v) / den;
           const dir = r > 0 ? 'left' : 'right';
-          const radius = clamp(Math.abs(r), 0.6, 400);
+          const radiusAxis = clamp(Math.abs(r), 0.6, 400);
+          const laneW = ((+el.widthStart || 0) + (+el.widthEnd || 0)) / 2;
+          const radius = Math.max(0, radiusAxis - laneW / 2);   // si memorizza il raggio interno
           const sgn = r > 0 ? 1 : -1;
-          const C = add(S0, mul(nL, sgn * radius));
+          const C = add(S0, mul(nL, sgn * radiusAxis));
           const a0 = Math.atan2(S0.y - C.y, S0.x - C.x);
           const a1 = Math.atan2(wp.y - C.y, wp.x - C.x);
           let sweep = (a1 - a0) * sgn;

@@ -166,7 +166,7 @@ function trackPanel(state) {
         ${lvl !== 'ok' ? badge(lvl, lvl === 'bad' ? 'fuori regola' : 'da verificare') : ''}
       </div>`;
     const fields = el.type === 'arc'
-      ? num('Raggio', `track.elements.${i}.radius`, el.radius, { step: 0.5, min: 0.5 }) +
+      ? num('Raggio interno', `track.elements.${i}.radius`, el.radius, { step: 0.5, min: 0 }) +
         num('Angolo', `track.elements.${i}.angle`, el.angle, { step: 5, unit: '°', min: 1, max: 350 }) +
         sel('Senso', `track.elements.${i}.dir`, el.dir, [['left', 'Sinistra'], ['right', 'Destra']])
       : num('Lunghezza', `track.elements.${i}.length`, el.length, { step: 0.5, min: 0.2 });
@@ -219,7 +219,7 @@ function trackPanel(state) {
     <div class="flds">
       ${num('Giri completi', 'track.laps', t.laps || 1, { step: 1, unit: '×', min: 1, max: 2 })}
       ${num('Secondo passaggio', 'track.extra', t.extra || 0, { step: 5, min: 0, hint: 'nessuno' })}
-      ${num('Raggio del raccordo', 'ui.drawRadius', state.drawRadius, { step: 0.5, min: 1 })}
+      ${num('Raggio interno raccordo', 'ui.drawRadius', state.drawRadius, { step: 0.5, min: 0 })}
     </div>
     ${st2.isClosed && st2.raceLength > st2.totalLength + 0.5
       ? `<p class="hint">Sviluppo di gara: <b>${st2.extra > 0
@@ -382,7 +382,7 @@ function startPanel(state) {
 function autoPanel(state) {
   const gp = state.project.genParams;
   const reqs = (gp.curveReqs || []).map((rq, i) => `<div class="reqRow">
-      ${num('Raggio', `genParams.curveReqs.${i}.radius`, rq.radius, { step: 0.5, min: 0.5 })}
+      ${num('Raggio interno', `genParams.curveReqs.${i}.radius`, rq.radius, { step: 0.5, min: 0 })}
       ${num('Quante', `genParams.curveReqs.${i}.count`, rq.count, { step: 1, unit: '×', min: 1 })}
       ${btn('gen.delReq', '✕', 'mini danger', String(i))}
     </div>`).join('');
@@ -456,7 +456,7 @@ function rulesPanel(state) {
     <div class="flds">
       ${num('Larghezza minima', 'rules.minWidth', r.minWidth, { step: 0.25, min: 0 })}
       ${num('Larghezza nominale', 'rules.maxWidth', r.maxWidth, { step: 0.25, min: 0 })}
-      ${num('Raggio minimo curva', 'rules.minRadius', r.minRadius, { step: 0.5, min: 0, hint: '0 = libero' })}
+      ${num('Raggio interno minimo', 'rules.minRadius', r.minRadius, { step: 0.5, min: 0, hint: '0 = libero' })}
     </div>
     <p class="hint">${roller
       ? 'Regolamento: larghezza minima <b>3,5 m</b>, ma <b>5 m</b> sul rettilineo di partenza e sulla prima curva; servono almeno <b>2 curve a destra e 2 a sinistra</b>; lunghezza totale <b>250–300 m</b>.'

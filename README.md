@@ -232,6 +232,7 @@ così che restino facili da aggiornare quando esce una nuova stagione.
 | Partenza → primo ostacolo | min 12 m | 65.6 |
 | Ultimo ostacolo → arrivo | min 10 m | 65.4 |
 | Curve obbligatorie | almeno 2 a destra e 2 a sinistra | 65.4 |
+| Raggio delle curve | misurato al bordo interno della carreggiata | planimetrie di gara |
 | Curva entro 10 m dal rettilineo iniziale | larga ≥ 5 m, ampiezza > 50° | 65.4 |
 | Rampe | larghezza ≥ 1,80 m, altezza ≥ 0,40 m | 65.4 |
 | Gruppi di ostacoli | ≥1 Gimkana, ≥4 Barriere, ≥3 Rampe di ≥2 tipologie | 64 |

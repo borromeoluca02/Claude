@@ -65,7 +65,8 @@ function walk(pose, el, step = 1.0) {
   };
   let end, endHeading;
   if (el.type === 'arc') {
-    const r = el.radius;
+    // il raggio degli elementi è quello interno: la geometria usa l'asse
+    const r = (el.radius || 0) + (el.width || 5) / 2;
     const sweep = (el.dir === 'right' ? -1 : 1) * el.angle * DEG;
     const n = leftOf(pose.heading);
     const center = el.dir === 'right' ? sub(pose.point, mul(n, r)) : add(pose.point, mul(n, r));
@@ -125,7 +126,7 @@ function repair(cand, poly, margin, rules) {
       if (el.type === 'straight') {
         return { ...el, length: Math.max(rules.minGap, el.length - Math.max(0.8, el.length * 0.08)) };
       }
-      if (touchRadii && el.radius > 4) return { ...el, radius: Math.max(4, el.radius - 0.4) };
+      if (touchRadii && el.radius > 2) return { ...el, radius: Math.max(2, el.radius - 0.4) };
       return el;
     });
   }
@@ -173,6 +174,7 @@ function serpentine(poly, opt) {
   for (const headingDeg of opt.headings) {
     for (const R of radii) {
       for (const firstDir of ['left', 'right']) {
+        const rA = R + width / 2;        // raggio dell'asse della curva
         const { d, n } = axes(headingDeg);
         const b = G.polygonBounds(poly);
         const origin = { x: b.minX, y: b.minY };
@@ -180,9 +182,9 @@ function serpentine(poly, opt) {
         const rangeD = projectRange(poly, origin, d);
         const lanes = [];
         // passo fra corsie: mai meno della larghezza della corsia più un franco
-        const spacing = Math.max(2 * R, width + 0.6);
-        const connector = spacing - 2 * R;           // raccordo dritto nel tornante
-        const turnLength = R * Math.PI + connector;
+        const spacing = Math.max(2 * rA, width + 0.6);
+        const connector = spacing - 2 * rA;          // raccordo dritto nel tornante
+        const turnLength = rA * Math.PI + connector;
         // dal lato "basso" verso l'alto se firstDir = left
         const startLat = firstDir === 'left' ? rangeN.min + inset : rangeN.max - inset;
         const sign = firstDir === 'left' ? 1 : -1;
@@ -192,9 +194,9 @@ function serpentine(poly, opt) {
           const lineOrigin = add(origin, mul(n, lat));
           const ch = longestChord(poly, lineOrigin, d, inset, rangeD.min - 5, rangeD.max + 5);
           if (!ch) break;
-          const usable = ch.to - ch.from - 2 * R;
+          const usable = ch.to - ch.from - 2 * rA;
           if (usable < Math.max(rules.minGap, 3)) break;
-          lanes.push({ lat, from: ch.from + R, to: ch.to - R, len: usable });
+          lanes.push({ lat, from: ch.from + rA, to: ch.to - rA, len: usable });
         }
         if (lanes.length < 2) continue;
 
@@ -258,23 +260,24 @@ function oval(poly, opt) {
   const inset = margin + width / 2;
   for (const headingDeg of opt.headings) {
     for (const R of radii) {
+      const rA = R + width / 2;
       const { d, n } = axes(headingDeg);
       const b = G.polygonBounds(poly);
       const origin = { x: b.minX, y: b.minY };
       const rangeN = projectRange(poly, origin, n);
       const rangeD = projectRange(poly, origin, d);
       const lat0 = rangeN.min + inset;
-      const lat1 = lat0 + 2 * R;
+      const lat1 = lat0 + 2 * rA;
       if (lat1 > rangeN.max - inset) continue;
       const c0 = longestChord(poly, add(origin, mul(n, lat0)), d, inset, rangeD.min - 5, rangeD.max + 5);
       const c1 = longestChord(poly, add(origin, mul(n, lat1)), d, inset, rangeD.min - 5, rangeD.max + 5);
       if (!c0 || !c1) continue;
-      const from = Math.max(c0.from, c1.from) + R;
-      const to = Math.min(c0.to, c1.to) - R;
+      const from = Math.max(c0.from, c1.from) + rA;
+      const to = Math.min(c0.to, c1.to) - rA;
       let L = to - from;
       if (L < 4) continue;
       if (target) {
-        const want = (target - 2 * Math.PI * R) / 2;
+        const want = (target - 2 * Math.PI * rA) / 2;
         if (want > 2 && want < L) L = want;
       }
       const sp = add(add(origin, mul(n, lat0)), mul(d, from));
@@ -301,31 +304,32 @@ function spiral(poly, opt) {
   const inset = margin + width / 2;
   for (const headingDeg of opt.headings.slice(0, 3)) {
     for (const R of radii) {
+      const rA = R + width / 2;
       const { d, n } = axes(headingDeg);
       const b = G.polygonBounds(poly);
       const origin = { x: b.minX, y: b.minY };
       const rN = projectRange(poly, origin, n), rD = projectRange(poly, origin, d);
-      let w = (rD.max - rD.min) - 2 * inset - 2 * R;
-      let hh = (rN.max - rN.min) - 2 * inset - 2 * R;
+      let w = (rD.max - rD.min) - 2 * inset - 2 * rA;
+      let hh = (rN.max - rN.min) - 2 * inset - 2 * rA;
       if (w < 6 || hh < 6) continue;
       const plan = [];
-      const shrink = 2 * R + Math.max(width, 3);
+      const shrink = 2 * rA + Math.max(width, 3);
       let total = 0;
       for (let loop = 0; loop < 6; loop++) {
         const segs = [w, hh, w - shrink / 2, hh - shrink / 2];
         let stop = false;
         for (const L of segs) {
-          if (L < Math.max(6, 2 * R)) { stop = true; break; }
+          if (L < Math.max(6, 2 * rA)) { stop = true; break; }
           plan.push({ type: 'straight', length: L, width });
           plan.push({ type: 'arc', radius: R, angle: 90, dir: 'left', width });
-          total += L + R * Math.PI / 2;
+          total += L + rA * Math.PI / 2;
           if (target && total >= target) { stop = true; break; }
         }
         w -= shrink; hh -= shrink;
         if (stop || w < 6 || hh < 6) break;
       }
       if (plan.length < 4) continue;
-      const sp = add(add(origin, mul(n, rN.min + inset + R)), mul(d, rD.min + inset + R));
+      const sp = add(add(origin, mul(n, rN.min + inset + rA)), mul(d, rD.min + inset + rA));
       out.push({
         strategy: 'spirale', name: `Spirale R${G.round(R, 1)} · ${headingDeg}°`,
         plan, start: { x: sp.x, y: sp.y, heading: headingDeg },
@@ -394,7 +398,7 @@ function organic(poly, opt, seed) {
       const line = geo.pts.filter((_, i) => i % 3 === 2);
       if (G.polylineSelfIntersections(line, 8).length > 0) continue;
       plan.push(...trial);
-      total += straightLen + R * ang * DEG;
+      total += straightLen + (R + width / 2) * ang * DEG;
       pose = p2;
       placed = true;
     }
@@ -462,7 +466,13 @@ export function autoPlaceStructures(project, opts = {}) {
     return [...rampe, ...barriere][i % (rampe.length + barriere.length)];
   };
 
-  const shortest = Math.min(...STRUCTURE_LIBRARY.map((s) => s.length));
+  // ripieghi quando l'ostacolo preferito non entra nel tratto: dal più corto
+  const fallbackKeys = (roller
+    ? ['gimkana', 'campominato', 'imbuto', ...barriere, ...rampe]
+    : skatePool)
+    .filter((k, i, arr) => arr.indexOf(k) === i)
+    .sort((a, b) => libraryItem(a).length - libraryItem(b).length);
+  const shortest = Math.min(...fallbackKeys.map((k) => libraryItem(k).length));
   const threshold = opts.targetSpacing ?? (2 * rules.minGap + shortest);
   const placed = [];
   let guard = 0;
@@ -471,49 +481,97 @@ export function autoPlaceStructures(project, opts = {}) {
     const baked = bakeTrack(project);
     const finishLimit = baked.totalLength - (rules.finishMin || 0);
     const obs = collectObstacles(project, baked).sort((a, b) => a.sStart - b.sStart);
-    let hole = null;
-    const consider = (from, to, after) => {
-      const gap = to - from;
-      if (gap > 0 && (!hole || gap > hole.gap)) hole = { gap, from, to, after };
-    };
-    for (let i = 0; i < obs.length - 1; i++) consider(obs[i].sEnd, obs[i + 1].sStart, obs[i].label);
-    if (obs.length) consider(obs[obs.length - 1].sEnd, finishLimit, obs[obs.length - 1].label);
-    else consider(0, finishLimit, 'partenza');
-    if (!hole) break;
 
-    const needMore = wanted === null ? hole.gap > threshold : placed.length < wanted;
+    // tutti i buchi disponibili, dal più ampio al più stretto
+    const holes = [];
+    const add = (from, to, after, afterStart, afterKey) => {
+      if (to - from > 0) holes.push({ gap: to - from, from, to, after, afterStart, afterKey });
+    };
+    const keyOf = (o) => (o.structure ? o.structure.key : null);
+    for (let i = 0; i < obs.length - 1; i++) {
+      const h = { gap: obs[i + 1].sStart - obs[i].sEnd, from: obs[i].sEnd, to: obs[i + 1].sStart,
+        after: obs[i].label, afterStart: obs[i].kind === 'start', afterKey: keyOf(obs[i]), beforeKey: keyOf(obs[i + 1]) };
+      if (h.gap > 0) holes.push(h);
+    }
+    if (obs.length) {
+      const last = obs[obs.length - 1];
+      add(last.sEnd, finishLimit, last.label, last.kind === 'start', keyOf(last));
+    } else add(0, finishLimit, 'partenza', true, null);
+    holes.sort((a, b) => b.gap - a.gap);
+    if (!holes.length) break;
+
+    const needMore = wanted === null ? holes[0].gap > threshold : placed.length < wanted;
     if (!needMore) break;
 
-    const key = nextKey(placed.length);
-    const lib = libraryItem(key);
-    // posizione più vicina consentita: minGap dall'ostacolo precedente,
-    // ma almeno 12 m dalla linea di partenza per il primo ostacolo
-    const afterStart = obs.length && obs[0].kind === 'start' && Math.abs(hole.from - obs[0].sEnd) < 1e-6;
-    const firstMin = afterStart ? (rules.firstObstacleMin || 0) : 0;
-    let sStart = Math.max(hole.from + rules.minGap, firstMin);
-    const slack = hole.to - rules.minGap - lib.length - sStart;
-    if (slack < -1e-6) break;
-    let sMid = sStart + lib.length / 2 + Math.min(Math.max(0, slack / 2), Math.max(0, rules.maxGap - rules.minGap));
-    sMid = clamp(sMid, lib.length / 2, Math.max(lib.length / 2, finishLimit - lib.length / 2));
+    // ordine di preferenza: prima le quote obbligatorie, poi il resto
+    const preferred = nextKey(placed.length);
+    const pool2 = [preferred, ...fallbackKeys.filter((k) => k !== preferred)];
 
-    // preferisci un tratto rettilineo (obbligatorio per le gimkane)
-    let el = baked.elements.find((e) => sMid >= e.startStation && sMid <= e.endStation);
-    if (el && el.type === 'arc') {
-      const alt = el.endStation + rules.minGap + lib.length / 2;
-      if (alt + lib.length / 2 > hole.to || alt > finishLimit) break;
-      sMid = alt;
-      el = baked.elements.find((e) => sMid >= e.startStation && sMid <= e.endStation);
+    let done = false;
+    for (const hole of holes) {
+      if (wanted === null && hole.gap <= threshold) break;
+      const firstMin = hole.afterStart ? (rules.firstObstacleMin || 0) : 0;
+      const sStart = Math.max(hole.from + rules.minGap, firstMin);
+      for (const key of pool2) {
+        const lib = libraryItem(key);
+        const slack = hole.to - rules.minGap - lib.length - sStart;
+        if (slack < -1e-6) continue;                     // non ci sta: prova un altro tipo
+        // due salti a secco di fila vogliono almeno 10 m fra loro, da una parte e dall'altra
+        const dryMin = ROLLER.dryJumpConsecutiveMin;
+        const dryPrev = roller && key === 'saltosecco' && hole.afterKey === 'saltosecco';
+        const dryNext = roller && key === 'saltosecco' && hole.beforeKey === 'saltosecco';
+        if ((dryPrev || dryNext) && hole.gap < dryMin + lib.length + (dryPrev && dryNext ? dryMin : rules.minGap)) continue;
+        const minFromPrev = dryPrev ? dryMin : rules.minGap;
+        const minToNext = dryNext ? dryMin : rules.minGap;
+        const sStartK = Math.max(sStart, hole.from + minFromPrev);
+        const sEndMax = hole.to - minToNext;             // fine massima dell'ostacolo
+        if (sEndMax - sStartK - lib.length < -1e-6) continue;
+        let sMid = sStartK + lib.length / 2 + Math.min(Math.max(0, (sEndMax - sStartK - lib.length) / 2), Math.max(0, rules.maxGap - rules.minGap));
+        sMid = Math.min(sMid, sEndMax - lib.length / 2);
+        sMid = clamp(sMid, lib.length / 2, Math.max(lib.length / 2, finishLimit - lib.length / 2));
+
+        // le gimkane vogliono un rettilineo: se cade in curva si sposta o si scarta
+        let el = baked.elements.find((e) => sMid >= e.startStation && sMid <= e.endStation);
+        if (el && el.type === 'arc') {
+          const alt = el.endStation + rules.minGap + lib.length / 2;
+          if (alt + lib.length / 2 > hole.to || alt > finishLimit) continue;
+          sMid = alt;
+          el = baked.elements.find((e) => sMid >= e.startStation && sMid <= e.endStation);
+        }
+        const lane = el ? G.lerp(el.widthStart, el.widthEnd, el.length ? (sMid - el.startStation) / el.length : 0) : project.track.defaultWidth;
+        const width = G.round(Math.min(lib.width, Math.max(lib.key === 'rialzo' ? ROLLER.rampWidthMin : 1, lane)), 2);
+        project.structures.push(makeStructure(lib.key, G.round(sMid, 2), { width, category: cat }));
+        if (count[lib.group] !== undefined) count[lib.group]++;
+        if (lib.group === 'rampe') rampTypes.add(lib.key);
+        placed.push(lib.key);
+        done = true;
+        break;
+      }
+      if (done) break;
     }
-    const lane = el ? G.lerp(el.widthStart, el.widthEnd, el.length ? (sMid - el.startStation) / el.length : 0) : project.track.defaultWidth;
-    const width = G.round(Math.min(lib.width, Math.max(lib.key === 'rialzo' ? ROLLER.rampWidthMin : 1, lane)), 2);
-    project.structures.push(makeStructure(key, G.round(sMid, 2), { width, category: cat }));
-
-    const grp = lib.group;
-    if (count[grp] !== undefined) count[grp]++;
-    if (grp === 'rampe') rampTypes.add(key);
-    placed.push(key);
+    if (!done) break;     // nessun tipo entra in nessun buco
   }
   return placed.length;
+}
+
+/**
+ * Progressiva su cui chiudere il secondo passaggio: la più vicina a quella
+ * ideale che lascia davanti a sé i metri richiesti dall'ultimo ostacolo.
+ */
+function bestFinishStation(project, ideal, finishMin) {
+  const lapLen = bakeTrack(project).totalLength;
+  const a = analyze(project);
+  const obs = a.obstacles.filter((o) => o.kind !== 'start').sort((x, y) => x.sEnd - y.sEnd);
+  const clearance = (s) => {
+    const prev = obs.filter((o) => o.sEnd <= s + 1e-6).slice(-1)[0];
+    return prev ? s - prev.sEnd : s;
+  };
+  const cands = [ideal, ...obs.map((o) => o.sEnd + finishMin + 0.5)]
+    .map((s) => G.clamp(s, 1, lapLen - 0.5))
+    .filter((s) => clearance(s) >= finishMin - 1e-6);
+  if (!cands.length) return G.round(ideal, 1);
+  cands.sort((x, y) => Math.abs(x - ideal) - Math.abs(y - ideal));
+  return G.round(cands[0], 1);
 }
 
 /** il raccordo di chiusura resta dentro l'area? */
@@ -576,11 +634,7 @@ function makeLoopVariant(openProject, opt) {
 
   // l'arrivo del secondo passaggio non deve cadere subito dopo un ostacolo
   if (base.track.extra > 0 && rules.finishMin > 0) {
-    const a = analyze(base);
-    const prev = a.obstacles.filter((o) => o.kind !== 'start' && o.sEnd <= base.track.extra + 1e-6).slice(-1)[0];
-    if (prev && base.track.extra - prev.sEnd < rules.finishMin) {
-      base.track.extra = G.round(Math.min(prev.sEnd + rules.finishMin, bakeTrack(base).totalLength - 0.5), 1);
-    }
+    base.track.extra = bestFinishStation(base, base.track.extra, rules.finishMin);
   }
   return base;
 }
@@ -610,6 +664,15 @@ function scoreCandidate(project, cand) {
     if (a.stats.extra > 0) notes.push(`un giro da ${G.round(a.stats.totalLength, 0)} m più ${G.round(a.stats.extra, 0)} m di secondo passaggio`);
   } else {
     score += L * 0.8;
+  }
+  // rettilineo di partenza (Art. 65.4)
+  if (project.discipline === 'roller') {
+    const first = a.baked.elements[0];
+    const sl = first && first.type === 'straight' ? first.length : 0;
+    if (sl < ROLLER.startStraightMinLength) {
+      score -= 130;
+      notes.push(`rettilineo di partenza ${G.round(sl, 0)} m invece di ${ROLLER.startStraightMinLength} m`);
+    }
   }
   // curve obbligatorie a destra e a sinistra (roller cross)
   if (project.discipline === 'roller') {
@@ -662,7 +725,7 @@ export function generateCandidates(baseProject, options = {}) {
   const reqRadii = (gp.curveReqs || []).map((r) => +r.radius).filter((r) => r > 0.5);
   // i percorsi reali usano molte curve strette: senza queste non si sfrutta
   // lo spazio delle aree piccole
-  const stdRadii = [2.5, 3, 4, 5, 6, 8, 10, 12].filter((r) => !reqRadii.some((q) => Math.abs(q - r) < 0.5));
+  const stdRadii = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12].filter((r) => !reqRadii.some((q) => Math.abs(q - r) < 0.5));
   // i raggi richiesti restano in testa (e pesano di più nelle scelte casuali)
   // i raggi richiesti pesano di più nelle scelte casuali della strategia libera
   const radii = [...reqRadii, ...reqRadii, ...reqRadii, ...stdRadii];

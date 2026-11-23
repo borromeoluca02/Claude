@@ -1,7 +1,14 @@
 /* track.js — costruzione geometrica del percorso e validazione delle regole.
    Il percorso è una catena di elementi (rettilinei e archi) con continuità di
    tangente: ogni elemento parte dove finisce il precedente. Le progressive
-   ("station", in metri) sono misurate sull'asse della corsia. */
+   ("station", in metri) sono misurate sull'asse della corsia.
+
+   RAGGIO DELLE CURVE: il valore inserito dall'utente è il raggio INTERNO,
+   cioè la distanza fra il centro della curva e il bordo interno della
+   carreggiata, come si misura sulle planimetriche di gara. Il raggio dell'asse
+   della corsia, che serve per la geometria, è quindi raggio interno + metà
+   larghezza. Una curva "R5" larga 5 m ha asse a 7,50 m e bordo esterno a
+   10 m dal centro. */
 
 import * as G from './geometry.js';
 import { libraryItem } from './model.js';
@@ -26,7 +33,10 @@ export function bakeTrack(project) {
     let length, endPoint, endHeading, center = null, startAngle = 0, sweep = 0;
 
     if (e.type === 'arc') {
-      const r = Math.max(0.2, e.radius);
+      // il raggio indicato è quello interno: l'asse corre mezza corsia più in là
+      const meanW = (((+e.widthStart) || 0) + ((+e.widthEnd) || 0)) / 2;
+      const rInner = Math.max(0, +e.radius || 0);
+      const r = Math.max(0.2, rInner + meanW / 2);
       sweep = (e.dir === 'right' ? -1 : 1) * (e.angle || 0) * DEG;
       const n = leftOf(h);
       center = e.dir === 'right' ? sub(p, mul(n, r)) : add(p, mul(n, r));
@@ -44,6 +54,9 @@ export function bakeTrack(project) {
     elements.push({
       ...e, length, startStation, endStation: startStation + length,
       startPoint, endPoint, startHeading, endHeading, center, startAngle, sweep,
+      // `radius` resta quello interno dichiarato; qui si espone anche quello
+      // geometrico dell'asse, usato dal disegno
+      axisRadius: e.type === 'arc' ? Math.abs(length / (Math.abs(sweep) || 1)) : null,
     });
     s += length; p = endPoint; h = endHeading;
   }
@@ -336,18 +349,11 @@ export function analyze(project) {
   /* 1b. distanza dell'ultimo ostacolo dalla linea di arrivo.
          Su un anello l'arrivo cade sulla progressiva dell'ultimo passaggio,
          quindi l'ostacolo da controllare è l'ultimo prima di quel punto. */
-  const obsNoStart = obstacles.filter((o) => o.kind !== 'start');
-  if (obsNoStart.length && rules.finishMin > 0) {
-    let target = obsNoStart[obsNoStart.length - 1];
-    let d;
-    if (!isClosed) {
-      d = baked.totalLength - target.sEnd;
-    } else {
-      const before = obsNoStart.filter((o) => o.sEnd <= finishStation + 1e-6);
-      if (before.length) { target = before[before.length - 1]; d = finishStation - target.sEnd; }
-      else { d = (baked.totalLength - target.sEnd) + finishStation; }
-    }
-    if (d < rules.finishMin - 1e-6) {
+  if (rules.finishMin > 0) {
+    const fc = finishClearance(baked, obstacles, { isClosed, extra, finishStation });
+    const target = fc && fc.target;
+    const d = fc ? fc.distance : null;
+    if (fc && d < rules.finishMin - 1e-6) {
       setStatus(target.id, 'bad', `Distanza dall'arrivo di ${n2(d, 2)} m: sotto il minimo di ${n2(rules.finishMin)} m`);
       issues.push({ level: 'bad', target: target.id, text: `${target.label}: ${n2(d, 2)} m dall'arrivo (min ${n2(rules.finishMin)} m)` });
     }
@@ -494,6 +500,30 @@ export function analyze(project) {
  * Restituisce un elenco di controlli { label, ok, detail, ref }: è una
  * fotografia, non un blocco. I controlli non applicabili vengono omessi.
  */
+/**
+ * Distanza fra l'ultimo ostacolo e la linea di arrivo.
+ * Su un anello con secondo passaggio l'arrivo non è alla fine del giro ma
+ * sulla progressiva dove finisce la gara, quindi va cercato l'ostacolo che
+ * precede quel punto.
+ */
+export function finishClearance(baked, obstacles, stats) {
+  const obs = obstacles.filter((o) => o.kind !== 'start');
+  if (!obs.length) return null;
+  const closed = stats && stats.isClosed;
+  const fin = closed && stats.extra > 0 ? stats.finishStation : baked.totalLength;
+  if (!closed) {
+    const last = obs[obs.length - 1];
+    return { target: last, distance: baked.totalLength - last.sEnd };
+  }
+  const before = obs.filter((o) => o.sEnd <= fin + 1e-6);
+  if (before.length) {
+    const target = before[before.length - 1];
+    return { target, distance: fin - target.sEnd };
+  }
+  const last = obs[obs.length - 1];
+  return { target: last, distance: (baked.totalLength - last.sEnd) + fin };
+}
+
 export function regulationChecks(project, baked, obstacles, stats) {
   const out = [];
   const add = (label, ok, detail, ref) => out.push({ label, ok: !!ok, detail, ref });
@@ -552,9 +582,11 @@ export function regulationChecks(project, baked, obstacles, stats) {
     if (obs.length) {
       add('Partenza → primo ostacolo ≥ 12 m', obs[0].sStart >= R.firstObstacleMin - 1e-6,
         `${n2(obs[0].sStart, 1)} m (${obs[0].label})`, 'Art. 65.6');
-      const dFin = baked.totalLength - obs[obs.length - 1].sEnd;
-      add('Ultimo ostacolo → arrivo ≥ 10 m', dFin >= R.finishMin - 1e-6,
-        `${n2(dFin, 1)} m`, 'Art. 65.4');
+      const fc = finishClearance(baked, obstacles, stats);
+      if (fc) {
+        add('Ultimo ostacolo → arrivo ≥ 10 m', fc.distance >= R.finishMin - 1e-6,
+          `${n2(fc.distance, 1)} m (${fc.target.label})`, 'Art. 65.4');
+      }
     }
 
     // gruppi di ostacoli
@@ -680,6 +712,8 @@ export function chainFromPlan(plan, width) {
  * È la base dello strumento "disegna percorso": si tocca dove si vuole andare.
  */
 export function extendTo(baked, P, R = 8, width = 5) {
+  // R è il raggio interno: la geometria lavora su quello dell'asse
+  const rAxis = Math.max(0.5, R + width / 2);
   const S = baked.elements.length ? baked.endPoint : baked.startPoint;
   const h = baked.elements.length ? baked.endHeading : baked.startHeading;
   const v = sub(P, S);
@@ -693,7 +727,7 @@ export function extendTo(baked, P, R = 8, width = 5) {
 
   const dirSide = turn > 0 ? 'left' : 'right';
   const sgn = turn > 0 ? 1 : -1;
-  let r = Math.max(0.5, R);
+  let r = rAxis;
   const n = leftOf(h);
   let C = add(S, mul(n, sgn * r));
   let d = G.dist(P, C);
@@ -704,7 +738,7 @@ export function extendTo(baked, P, R = 8, width = 5) {
     d = G.dist(P, C);
     if (d < r * 1.02) {
       // ripiegamento su posto: arco secco di 150°
-      return [mk('arc', { radius: G.round(r, 2), angle: 150, dir: dirSide })];
+      return [mk('arc', { radius: G.round(Math.max(0, r - width / 2), 2), angle: 150, dir: dirSide })];
     }
   }
   const tanLen = Math.sqrt(Math.max(0, d * d - r * r));
@@ -716,7 +750,7 @@ export function extendTo(baked, P, R = 8, width = 5) {
   while (sweep < 0) sweep += 2 * Math.PI;
   while (sweep > 2 * Math.PI) sweep -= 2 * Math.PI;
   const angle = G.clamp(sweep * G.RAD, 0.5, 350);
-  const els = [mk('arc', { radius: G.round(r, 2), angle: G.round(angle, 1), dir: dirSide })];
+  const els = [mk('arc', { radius: G.round(Math.max(0, r - width / 2), 2), angle: G.round(angle, 1), dir: dirSide })];
   if (tanLen > 0.3) els.push(mk('straight', { length: G.round(tanLen, 2) }));
   return els;
 }
@@ -779,10 +813,12 @@ export function dubinsElements(sol, width) {
   const mk = (type, o) => ({ id: 'el_' + Math.random().toString(36).slice(2, 9), type, widthStart: width, widthEnd: width, ...o });
   const els = [];
   const degT = sol.t * G.RAD, degQ = sol.q * G.RAD;
-  if (degT > 0.3) els.push(mk('arc', { radius: G.round(sol.radius, 2), angle: G.round(degT, 1), dir: sol.dirs[0] }));
+  // sol.radius è il raggio dell'asse: si riporta a raggio interno
+  const rIn = G.round(Math.max(0, sol.radius - width / 2), 2);
+  if (degT > 0.3) els.push(mk('arc', { radius: rIn, angle: G.round(degT, 1), dir: sol.dirs[0] }));
   const straight = sol.p * sol.radius;
   if (straight > 0.3) els.push(mk('straight', { length: G.round(straight, 2) }));
-  if (degQ > 0.3) els.push(mk('arc', { radius: G.round(sol.radius, 2), angle: G.round(degQ, 1), dir: sol.dirs[1] }));
+  if (degQ > 0.3) els.push(mk('arc', { radius: rIn, angle: G.round(degQ, 1), dir: sol.dirs[1] }));
   return els;
 }
 
@@ -792,6 +828,8 @@ export function dubinsElements(sol, width) {
  * Prova più raggi e restituisce le soluzioni dalla più corta alla più lunga.
  */
 export function closeToStartOptions(baked, width, radii = [3, 4, 5, 6, 8, 10], runout = 0) {
+  // i raggi richiesti sono interni: la geometria usa quelli dell'asse
+  const axisRadii = radii.map((r) => Math.max(0.5, r + width / 2));
   const from = { x: baked.endPoint.x, y: baked.endPoint.y, heading: baked.endHeading };
   // con `runout` il raccordo punta a un punto arretrato rispetto alla partenza,
   // così l'anello si chiude con un rettilineo davanti alla linea d'arrivo
@@ -802,7 +840,7 @@ export function closeToStartOptions(baked, width, radii = [3, 4, 5, 6, 8, 10], r
     heading: baked.startHeading,
   };
   const sols = [];
-  for (const r of radii) {
+  for (const r of axisRadii) {
     for (const s of dubinsPaths(from, to, r)) sols.push(s);
   }
   return sols
