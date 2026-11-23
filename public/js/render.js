@@ -145,7 +145,7 @@ function corridor(state, S) {
   const { left, right } = edgePaths(baked);
   const band = [...left, ...right.slice().reverse()];
   let s = '<g class="corridor">';
-  s += `<path class="lane" d="${pathOf(S, band, true)}"/>`;
+  s += `<path class="lane" data-pick="lane" d="${pathOf(S, band, true)}"/>`;
 
   // tratti fuori area evidenziati
   for (const run of analysis.outside || []) {

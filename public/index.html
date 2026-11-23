@@ -14,7 +14,7 @@
 </head>
 <body>
 <header class="top">
-  <div class="brand"><span class="logo">⛸</span><span>Cross<b>Builder</b></span></div>
+  <button class="brand" id="brandBtn" data-act="go.home" title="Torna ai progetti"><span class="logo">⛸</span><span>Cross<b>Builder</b></span></button>
   <input id="prjName" class="prjName" aria-label="Nome del progetto" placeholder="Nome del percorso">
   <div class="seg small" id="discSeg">
     <button class="segb" data-act="discipline:roller">Roller</button>
@@ -25,10 +25,13 @@
   <button class="tbtn" data-act="redo" title="Ripeti (Ctrl+Shift+Z)">↷</button>
   <button class="tbtn" data-act="loc.save" title="Salva">💾</button>
   <button class="tbtn" data-act="exp.png" title="Esporta PNG">🖼</button>
-  <button class="tbtn panelToggle" id="panelToggle" title="Pannello">☰</button>
+  <button class="tbtn" data-act="go.home" title="I miei lavori">📂</button>
+  <button class="tbtn panelToggle" id="panelToggle" title="Mostra o nascondi il pannello">☰</button>
 </header>
 
-<main>
+<section class="home" id="home" hidden></section>
+
+<main id="editor">
   <div class="stage" id="stage">
     <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
 
@@ -48,6 +51,7 @@
   </div>
 
   <aside class="panel" id="panel">
+    <div class="panelGrab" id="panelGrab" title="Trascina per allargare o stringere"></div>
     <div class="panelGrip" id="panelGrip"></div>
     <nav class="tabs" id="tabs"></nav>
     <div class="panelBody" id="panelBody"></div>

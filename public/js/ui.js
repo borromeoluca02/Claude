@@ -198,7 +198,9 @@ function trackPanel(state) {
       ${btn('track.clear', 'Svuota', 'danger')}
     </div>
     <p class="hint">${state.tool === 'draw'
-      ? 'Muovi il puntatore sulla mappa: vedi in tempo reale il tratto che stai per aggiungere, con la sua lunghezza e lo sviluppo totale. Clicca per fissarlo. Se le distanze o le misure non tornano il tratto resta verde o diventa rosso, ma il clic vale comunque. Esc per uscire.'
+      ? (!baked.elements.length && !state.drawArmed
+        ? '<b>Passo 1:</b> clicca sulla mappa dove deve partire il percorso. Poi muovendo il puntatore la corsia si allunga e un secondo clic ne fissa la lunghezza.'
+        : 'Muovi il puntatore sulla mappa: vedi in tempo reale il tratto che stai per aggiungere, con la sua lunghezza e lo sviluppo totale. Clicca per fissarlo. Se le distanze o le misure non tornano il tratto resta verde o diventa rosso, ma il clic vale comunque. Esc per uscire.')
       : 'Trascina i pallini bianchi per allungare i rettilinei; sul pallino di una curva selezionata controlli insieme raggio e angolo. Le strutture si trascinano direttamente, anche prendendole dal nome.'}</p>
   </section>
   <section class="grp">

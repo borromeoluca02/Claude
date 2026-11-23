@@ -11,6 +11,7 @@ import { generateCandidates, autoPlaceStructures } from './generator.js';
 import { render, fitView, toScreen, fmtM, fmt } from './render.js';
 import { attachInteractions } from './interact.js';
 import { panelHTML, tabsHTML, statusHTML, getPath, setPath } from './ui.js';
+import { homeHTML, AREA_PRESETS } from './home.js';
 import * as store from './store.js';
 import { buildPlateSet } from './plate.js';
 
@@ -24,6 +25,8 @@ const statusEl = $('#status');
 const hintBar = $('#hintBar');
 const toastEl = $('#toast');
 const nameInput = $('#prjName');
+const homeEl = $('#home');
+const editorEl = $('#editor');
 
 /* ------------------------------------------------------------------ stato */
 
@@ -42,11 +45,15 @@ const state = {
   candidates: [],
   candidateIndex: -1,
   ghost: null,
+  drawArmed: false,   // nel disegno da zero: la partenza è stata fissata?
   generating: false,
   user: null,
   firebaseConfig: null,
   localProjects: [],
   cloudProjects: [],
+  screen: 'home',
+  resume: null,
+  home: { discipline: 'roller', preset: 'gara', shape: 'rect', w: 60, h: 30, b2: 42 },
 };
 
 /* Progetto dimostrativo: serpentina di 275 m in un'area trapezoidale,
@@ -92,9 +99,11 @@ function paintPanel() {
 function paintStatus() { statusEl.innerHTML = statusHTML(state); }
 function paintHint() {
   let msg = '';
-  if (state.tool === 'draw') msg = state.project.track.elements.length
-    ? '✏️ Muovi il puntatore: vedi il tratto e la sua lunghezza in tempo reale. Clicca per fissarlo.'
-    : '✏️ Muovi il puntatore dalla partenza: la corsia si allunga e si accorcia. Clicca per fissare la lunghezza.';
+  if (state.tool === 'draw') {
+    msg = !state.project.track.elements.length && !state.drawArmed
+      ? '✏️ Passo 1: clicca sulla mappa dove deve partire il percorso.'
+      : '✏️ Muovi il puntatore: la corsia si allunga in tempo reale. Clicca per fissare la lunghezza.';
+  }
   else if (state.tool && state.tool.startsWith('add:')) msg = `Tocca la mappa per posizionare «${libraryItem(state.tool.slice(4)).name}».`;
   else if (state.mode === 'area') msg = '◇ Trascina i vertici per modificare l\'area.';
   if (msg) {
@@ -117,6 +126,58 @@ function syncToolButtons() {
 }
 
 function reanalyze() { state.analysis = analyze(state.project); }
+
+/* ------------------------------------------------------ schermata iniziale */
+
+function paintHome() {
+  homeEl.innerHTML = homeHTML(state);
+}
+function showHome() {
+  // il lavoro in corso viene archiviato, così si ritrova fra i propri progetti
+  if (state.project && (state.project.track.elements.length || state.project.structures.length)) {
+    try { store.saveLocal(state.project); } catch (e) { /* archiviazione piena */ }
+  }
+  state.screen = 'home';
+  state.localProjects = store.listLocal();
+  state.resume = store.loadAutosave();
+  homeEl.hidden = false;
+  editorEl.hidden = true;
+  document.body.classList.add('onHome');
+  paintHome();
+}
+function showEditor(doFit = true) {
+  state.screen = 'editor';
+  homeEl.hidden = true;
+  editorEl.hidden = false;
+  document.body.classList.remove('onHome');
+  resize();
+  if (doFit) fit();
+  paint(); paintPanel(); paintStatus();
+}
+
+/** area scelta nella schermata iniziale */
+function homeArea() {
+  const h = state.home;
+  if (h.preset !== 'custom') {
+    const p = AREA_PRESETS.find((x) => x.key === h.preset) || AREA_PRESETS[0];
+    return makeArea('rect', { w: p.w, h: p.h });
+  }
+  const w = Math.max(10, +h.w || 60), d = Math.max(10, +h.h || 30);
+  switch (h.shape) {
+    case 'trapezoid': return makeArea('trapezoid', { b1: w, b2: Math.max(5, +h.b2 || Math.round(w * 0.7)), h: d });
+    case 'triangle': return makeArea('triangle', { base: w, h: d });
+    case 'polygon': return makeArea('polygon', { sides: 5, r: Math.min(w, d) / 2 });
+    default: return makeArea('rect', { w, h: d });
+  }
+}
+function areaLabel() {
+  const h = state.home;
+  if (h.preset !== 'custom') {
+    const p = AREA_PRESETS.find((x) => x.key === h.preset) || AREA_PRESETS[0];
+    return `${p.w}×${p.h}`;
+  }
+  return `${Math.round(+h.w || 60)}×${Math.round(+h.h || 30)}`;
+}
 
 /* modifica in corso (trascinamento): aggiorna solo la mappa */
 function live() { reanalyze(); paint(); paintStatus(); }
@@ -236,6 +297,12 @@ const OPTIONAL_NUM = /^(genParams\.(targetLength|minCurves|structureCount)|area\
 function applyBind(target) {
   const path = target.getAttribute('data-bind');
   if (!path) return false;
+  if (path.startsWith('home.')) {
+    const key = path.slice(5);
+    state.home[key] = target.type === 'number' ? (+target.value || 0) : target.value;
+    if (key === 'shape') paintHome();
+    return true;
+  }
   if (path.startsWith('ui.')) {
     const key = path.slice(3);
     state[key] = target.type === 'number' ? (+target.value || 0) : target.value;
@@ -286,8 +353,50 @@ const actions = {
   'view.zoomOut': () => { state.view.scale = G.clamp(state.view.scale / 1.25, 0.5, 240); paint(); },
   'labels.toggle': () => { state.showLabels = !state.showLabels; paint(); syncToolButtons(); },
   'snap.toggle': () => { state.snap = !state.snap; toast(state.snap ? 'Aggancio 25 cm attivo' : 'Aggancio disattivato'); syncToolButtons(); },
-  'tool:draw': () => { state.tool = state.tool === 'draw' ? null : 'draw'; state.mode = 'select'; state.ghost = null; paintPanel(); paint(); },
+  'tool:draw': () => {
+    state.tool = state.tool === 'draw' ? null : 'draw';
+    state.mode = 'select';
+    state.ghost = null;
+    // su un percorso vuoto si riparte dal fissare la partenza
+    if (state.tool === 'draw') state.drawArmed = state.project.track.elements.length > 0;
+    paintPanel(); paint();
+  },
   'tool:none': () => { state.tool = null; state.mode = 'select'; state.ghost = null; paintPanel(); paint(); },
+
+  /* --- schermata iniziale --- */
+  'go.home': () => showHome(),
+  'home.disc': (k) => { state.home.discipline = k === 'skate' ? 'skate' : 'roller'; paintHome(); },
+  'home.preset': (k) => { state.home.preset = k; paintHome(); },
+  'home.scroll': (which) => {
+    const el = document.getElementById(which === 'mine' ? 'wmine' : 'wnew');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+  'home.create': () => startNew(false),
+  'home.createFull': () => startNew(true),
+  'home.resume': () => {
+    const p = store.loadAutosave();
+    if (!p) return toast('Nessun lavoro da riprendere', true);
+    state.project = normalizeProject(p);
+    afterProjectLoad();
+    showEditor();
+  },
+  'home.cloud': () => { state.tab = 'cloud'; showEditor(false); panel.classList.add('open'); },
+  'resume.open': () => actions['home.resume'](),
+  'resume.dup': () => actions['home.resume'](),
+  'resume.del': () => { try { localStorage.removeItem('rc.current'); } catch (e) { /* ignora */ } state.resume = null; paintHome(); },
+  'loc.dup': (id) => {
+    const p = store.loadLocal(id);
+    if (!p) return;
+    const copy = normalizeProject(p);
+    copy.id = 'prj_' + Math.random().toString(36).slice(2, 9);
+    copy.name = (copy.name || 'Percorso') + ' (copia)';
+    copy.updatedAt = Date.now();
+    store.saveLocal(copy);
+    state.localProjects = store.listLocal();
+    paintHome();
+    toast('Copia creata');
+  },
+  'cloud.dup': (id) => actions['cloud.open'](id),
 
   /* --- disciplina --- */
   discipline(kind) {
@@ -461,9 +570,13 @@ const actions = {
   'track.laps': (n) => { state.project.track.laps = G.clamp(Math.round(+n || 1), 1, 2); commit(); },
   'track.openLoop': () => { state.project.track.laps = 1; state.project.track.extra = 0; commit(); toast('Tornato a un giro solo'); },
   'track.clear': () => {
-    if (!confirm('Eliminare tutti gli elementi del percorso?')) return;
     state.project.track.elements = [];
+    state.project.track.laps = 1;
+    state.project.track.extra = 0;
+    state.drawArmed = false;
+    state.ghost = null;
     commit();
+    toast('Percorso svuotato: con la matita clicca dove far partire il nuovo tracciato');
   },
 
   /* --- strutture --- */
@@ -570,6 +683,7 @@ const actions = {
       const raw = await store.pickJSON();
       state.project = normalizeProject(raw);
       afterProjectLoad();
+      showEditor();
       toast('Progetto importato');
     } catch (e) { toast('Import non riuscito: ' + e.message, true); }
   },
@@ -591,13 +705,14 @@ const actions = {
     if (!p) return toast('Progetto non trovato', true);
     state.project = normalizeProject(p);
     afterProjectLoad();
+    showEditor();
     toast('Progetto aperto');
   },
   'loc.del': (id) => {
-    if (!confirm('Eliminare il progetto salvato?')) return;
     store.deleteLocal(id);
     state.localProjects = store.listLocal();
-    paintPanel();
+    if (state.screen === 'home') paintHome(); else paintPanel();
+    toast('Progetto eliminato');
   },
 
   /* --- cloud --- */
@@ -643,6 +758,7 @@ const actions = {
       if (!p) return toast('Non trovato', true);
       state.project = normalizeProject(p);
       afterProjectLoad();
+      showEditor();
       toast('Progetto aperto dal cloud');
     } catch (e) { toast(e.message, true); }
   },
@@ -686,6 +802,8 @@ function buildDrawElements(wp) {
   const p = state.project;
   const width = p.track.defaultWidth;
   if (!p.track.elements.length) {
+    // finché la partenza non è fissata non si disegna nulla
+    if (!state.drawArmed) return null;
     const s = { x: p.track.start.x, y: p.track.start.y };
     const v = G.sub(wp, s);
     const len = G.len(v);
@@ -748,6 +866,32 @@ function previewTo(wp) {
 }
 function clearGhost() { if (state.ghost) { state.ghost = null; paint(); } }
 
+/** crea un progetto nuovo con l'area scelta; `withTrack` dà un tracciato di base */
+function startNew(withTrack) {
+  const area = homeArea();
+  const b = G.polygonBounds(area.points);
+  const p = createProject({
+    area,
+    discipline: state.home.discipline,
+    name: `Percorso ${areaLabel()}`,
+    elements: withTrack ? undefined : [],
+  });
+  p.rules = { ...p.rules, ...rulePreset(p.discipline) };
+  if (p.discipline === 'skate') p.startRamp.enabled = true;
+  p.track.start = { x: G.round(b.minX + Math.min(8, b.w * 0.12), 1), y: G.round(b.minY + Math.min(6, b.h * 0.15), 1), heading: 0 };
+  state.project = p;
+  state.tab = 'track';
+  state.tool = withTrack ? null : 'draw';
+  state.drawArmed = withTrack;
+  state.selection = null;
+  state.ghost = null;
+  afterProjectLoad(false);
+  showEditor();
+  toast(withTrack
+    ? 'Percorso di base creato: modificalo come vuoi'
+    : 'Area pronta: clicca sulla mappa per fissare la partenza');
+}
+
 /* --------------------------------------------------------- eventi globali */
 
 function handleAct(actRaw, id, target) {
@@ -800,10 +944,58 @@ document.addEventListener('keydown', (ev) => {
   }
 });
 
-/* pannello a cassetto su mobile */
+/* ------------------------------------------------------------- pannello */
+
+const isNarrow = () => window.matchMedia('(max-width:860px)').matches;
+
+function togglePanel() {
+  if (isNarrow()) panel.classList.toggle('open');
+  else {
+    document.body.classList.toggle('panelHidden');
+    setTimeout(resize, 220);
+  }
+}
 $('#panelGrip').addEventListener('click', () => panel.classList.toggle('open'));
-$('#panelToggle').addEventListener('click', () => panel.classList.toggle('open'));
-tabsEl.addEventListener('click', () => panel.classList.add('open'));
+$('#panelToggle').addEventListener('click', togglePanel);
+tabsEl.addEventListener('click', () => { if (isNarrow()) panel.classList.add('open'); });
+
+/* larghezza del pannello regolabile trascinandone il bordo */
+const PANEL_W_KEY = 'rc.panelWidth';
+function applyPanelWidth(px) {
+  const w = G.clamp(px, 280, Math.max(320, window.innerWidth - 420));
+  document.documentElement.style.setProperty('--panel-w', w + 'px');
+  try { localStorage.setItem(PANEL_W_KEY, String(Math.round(w))); } catch (e) { /* ignora */ }
+  resize();
+}
+(function initPanelResizer() {
+  try {
+    const saved = +localStorage.getItem(PANEL_W_KEY);
+    if (saved) document.documentElement.style.setProperty('--panel-w', G.clamp(saved, 280, 900) + 'px');
+  } catch (e) { /* ignora */ }
+  const grab = $('#panelGrab');
+  if (!grab) return;
+  let dragging = false;
+  grab.addEventListener('pointerdown', (ev) => {
+    if (isNarrow()) return;
+    dragging = true;
+    grab.setPointerCapture(ev.pointerId);
+    document.body.classList.add('resizing');
+    ev.preventDefault();
+  });
+  grab.addEventListener('pointermove', (ev) => {
+    if (!dragging) return;
+    applyPanelWidth(window.innerWidth - ev.clientX);
+  });
+  const end = (ev) => {
+    if (!dragging) return;
+    dragging = false;
+    try { grab.releasePointerCapture(ev.pointerId); } catch (e) { /* ignora */ }
+    document.body.classList.remove('resizing');
+  };
+  grab.addEventListener('pointerup', end);
+  grab.addEventListener('pointercancel', end);
+  grab.addEventListener('dblclick', () => applyPanelWidth(380));
+})();
 
 /* ------------------------------------------------------------------ avvio */
 
@@ -819,6 +1011,15 @@ const api = {
     paintPanel(); paint();
   },
   drawTo(wp) {
+    // primo clic su un percorso vuoto: fissa soltanto il punto di partenza
+    if (!state.project.track.elements.length && !state.drawArmed) {
+      state.project.track.start = { x: G.round(wp.x, 2), y: G.round(wp.y, 2), heading: state.project.track.start.heading || 0 };
+      state.drawArmed = true;
+      state.ghost = null;
+      commit();
+      toast('Partenza fissata: muovi il mouse e clicca per fissare la lunghezza');
+      return;
+    }
     const built = buildDrawElements(wp);
     if (!built) return;
     if (built.heading !== undefined) state.project.track.start.heading = built.heading;
@@ -853,8 +1054,10 @@ function boot() {
   state.project = saved ? normalizeProject(saved) : demoProject();
   state.firebaseConfig = store.getConfig();
   state.localProjects = store.listLocal();
+  state.resume = saved || null;
   resize();
   afterProjectLoad();
+  showHome();
   attachInteractions(canvas, api);
   new ResizeObserver(() => resize()).observe(stage);
   window.addEventListener('resize', resize);

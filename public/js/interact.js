@@ -77,8 +77,12 @@ export function attachInteractions(svg, api) {
           return;
         }
         case 'element':
+          // prendere il percorso in un punto qualsiasi lo sposta tutto intero
           api.select({ kind: 'element', id: hit.id });
-          drag = { kind: 'pan', from: toLocal(e), cx: st.view.cx, cy: st.view.cy };
+          drag = { kind: 'track', orig: { ...st.project.track.start }, from: wp };
+          return;
+        case 'lane':
+          drag = { kind: 'track', orig: { ...st.project.track.start }, from: wp };
           return;
         case 'trackstart':
           drag = { kind: 'start', orig: { ...st.project.track.start }, from: wp };
@@ -157,7 +161,7 @@ export function attachInteractions(svg, api) {
       api.live();
       return;
     }
-    if (drag.kind === 'start') {
+    if (drag.kind === 'track' || drag.kind === 'start') {
       st.project.track.start.x = drag.orig.x + (wp.x - drag.from.x);
       st.project.track.start.y = drag.orig.y + (wp.y - drag.from.y);
       if (st.snap) {
