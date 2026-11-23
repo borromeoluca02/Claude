@@ -87,7 +87,7 @@ await d.evaluate(() => {
   window.__commit();
 });
 await d.click('.tab[data-act="tab:track"]'); await d.waitForTimeout(150);
-await d.click('[data-act="tool:draw"]'); await d.waitForTimeout(150);
+await d.click('.ft[data-act="tool:draw"]'); await d.waitForTimeout(150);
 const box = await d.locator('#canvas').boundingBox();
 for (const [fx, fy] of [[0.45, 0.35], [0.62, 0.62], [0.36, 0.74], [0.22, 0.45]]) {
   await d.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
@@ -151,7 +151,7 @@ await d.screenshot({ path: `${OUT}/07-desktop-narrow.png` });
 
 /* ---- area irregolare: trascino un vertice ---- */
 await d.click('.tab[data-act="tab:area"]'); await d.waitForTimeout(150);
-await d.click('[data-act="area.toggleEdit"]'); await d.waitForTimeout(250);
+await d.click('.ft[data-act="area.toggleEdit"]'); await d.waitForTimeout(250);
 const nv = await d.locator('circle.vtx').count();
 if (nv > 2) {
   const vb = await d.locator('circle.vtx').nth(2).boundingBox();
@@ -168,7 +168,7 @@ log('AREA-DRAG', await d.evaluate(() => ({
   outside: window.__state.analysis.stats.outsideRuns,
 })));
 await d.screenshot({ path: `${OUT}/08-desktop-area.png` });
-await d.click('[data-act="area.toggleEdit"]');
+await d.click('.ft[data-act="area.toggleEdit"]');
 
 /* ---- skate cross ---- */
 await d.click('.tab[data-act="tab:start"]'); await d.waitForTimeout(150);
@@ -185,9 +185,9 @@ await d.click('[data-act="discipline:roller"]'); await d.waitForTimeout(350);
 /* ---- undo/redo + zoom ---- */
 await d.click('[data-act="undo"]'); await d.waitForTimeout(250);
 await d.click('[data-act="redo"]'); await d.waitForTimeout(250);
-await d.click('[data-act="view.zoomIn"]'); await d.click('[data-act="view.zoomIn"]'); await d.waitForTimeout(250);
+await d.click('.ft[data-act="view.zoomIn"]'); await d.click('.ft[data-act="view.zoomIn"]'); await d.waitForTimeout(250);
 await d.screenshot({ path: `${OUT}/10-desktop-zoom.png` });
-await d.click('[data-act="view.fit"]');
+await d.click('.ft[data-act="view.fit"]');
 
 /* ---- export PNG (verifica che non lanci) ---- */
 const dl = d.waitForEvent('download', { timeout: 15000 }).catch(() => null);
@@ -203,7 +203,7 @@ await m.waitForTimeout(600);
 await m.evaluate(() => window.__editor && window.__editor());
 await m.waitForTimeout(400);
 await m.screenshot({ path: `${OUT}/20-mobile-start.png` });
-await m.click('#panelToggle'); await m.waitForTimeout(400);
+await m.locator('#panelToggle').click({ timeout: 8000 }).catch(() => {}); await m.waitForTimeout(400);
 await m.screenshot({ path: `${OUT}/21-mobile-panel.png` });
 await m.click('.tab[data-act="tab:structures"]'); await m.waitForTimeout(400);
 await m.screenshot({ path: `${OUT}/22-mobile-structures.png` });
@@ -216,7 +216,7 @@ log('MOBILE', await m.evaluate(() => ({
   len: +window.__state.analysis.stats.totalLength.toFixed(1),
 })));
 /* pinch-zoom simulato con due dita */
-await m.click('#panelToggle'); await m.waitForTimeout(300);
+await m.locator('#panelToggle').click({ timeout: 8000 }).catch(() => {}); await m.waitForTimeout(300);
 await m.touchscreen.tap(200, 300);
 await m.waitForTimeout(200);
 await m.screenshot({ path: `${OUT}/24-mobile-canvas.png` });

@@ -36,15 +36,8 @@
   <div class="stage" id="stage">
     <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
 
-    <div class="floatTools">
-      <button class="ft" data-act="view.zoomIn" title="Ingrandisci">＋</button>
-      <button class="ft" data-act="view.zoomOut" title="Riduci">−</button>
-      <button class="ft" data-act="view.fit" title="Inquadra tutto">⤢</button>
-      <button class="ft" data-act="labels.toggle" title="Mostra/nascondi quote">🔠</button>
-      <button class="ft" data-act="snap.toggle" title="Aggancio alla griglia">⊞</button>
-      <button class="ft" data-act="area.toggleEdit" title="Modifica vertici area">◇</button>
-      <button class="ft" data-act="tool:draw" title="Disegna percorso">✏️</button>
-    </div>
+    <div class="floatTools" id="floatTools"></div>
+    <div class="flyout" id="flyout" hidden></div>
 
     <div class="hintBar" id="hintBar" hidden></div>
     <div class="statusbar" id="status"></div>

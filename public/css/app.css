@@ -393,3 +393,41 @@ body.onHome .top .tbtn[data-act="go.home"]{display:none}
 .clRow.head b{flex:1}
 .clRow.sub{padding-left:30px}
 .btn[disabled]{opacity:.45;pointer-events:none}
+
+/* ------------------------------------- barra strumenti sull'area di disegno */
+.floatTools{max-height:calc(100% - 80px);overflow:auto;scrollbar-width:none}
+.floatTools::-webkit-scrollbar{display:none}
+.ftSep{height:1px;background:var(--line);margin:3px 6px;flex:0 0 auto}
+.ft.danger{color:var(--bad)}
+.ft.danger:hover{background:#fdf1f1}
+
+.flyout{
+  position:absolute;top:10px;left:58px;z-index:12;max-width:min(420px,calc(100% - 70px));
+  max-height:calc(100% - 70px);display:flex
+}
+.flyout[hidden]{display:none !important}
+.flyBox{
+  background:#fff;border:1px solid var(--line);border-radius:12px;
+  box-shadow:0 8px 28px rgba(16,32,48,.18);display:flex;flex-direction:column;overflow:hidden;
+  width:300px;max-width:100%
+}
+.flyBox.wide{width:380px}
+.flyHead{
+  display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);
+  background:#f7fafc;font-size:13.5px
+}
+.flyHead b{flex:1}
+.flyBody{padding:11px 12px;overflow:auto}
+.flyRow{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.flyGroup{margin-bottom:10px}
+.flyGroup h5{
+  margin:0 0 5px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink2)
+}
+.flyBody .lib{grid-template-columns:repeat(auto-fill,minmax(108px,1fr))}
+.flyBody .flds{grid-template-columns:1fr}
+.flyBody .hint{margin-top:8px}
+
+@media (max-width:860px){
+  .flyout{left:56px;top:8px;max-width:calc(100% - 66px)}
+  .flyBox,.flyBox.wide{width:min(340px,100%)}
+}

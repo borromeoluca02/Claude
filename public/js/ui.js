@@ -699,6 +699,96 @@ export function clearDialogHTML(state) {
   </div>`;
 }
 
+/* ------------------------------------------- barra strumenti sul disegno */
+
+const toolBtn = (act, icon, label, on = false, cls = '') =>
+  `<button class="ft${on ? ' on' : ''} ${cls}" data-act="${e(act)}" title="${e(label)}" aria-label="${e(label)}">${icon}</button>`;
+
+export function toolbarHTML(state) {
+  const t = state.tool || '';
+  const picking = t.startsWith('add:');
+  return [
+    toolBtn('view.zoomIn', '＋', 'Ingrandisci'),
+    toolBtn('view.zoomOut', '−', 'Riduci'),
+    toolBtn('view.fit', '⤢', 'Inquadra tutto'),
+    toolBtn('labels.toggle', '🔠', 'Mostra o nascondi le quote', state.showLabels !== false),
+    toolBtn('snap.toggle', '⊞', 'Aggancio alla griglia (25 cm)', !!state.snap),
+    '<div class="ftSep"></div>',
+    toolBtn('tool:draw', '✏️', 'Disegna il percorso', t === 'draw'),
+    toolBtn('fly:add', '📐', 'Aggiungi tratti al percorso', state.flyout === 'add'),
+    toolBtn('area.toggleEdit', '🗺️', 'Modifica i lati dell\'area', state.mode === 'area'),
+    toolBtn('fly:struct', '🧱', 'Libreria ostacoli', state.flyout === 'struct' || picking),
+    toolBtn('fly:gen', '⚙️', 'Genera il percorso', state.flyout === 'gen'),
+    '<div class="ftSep"></div>',
+    toolBtn('clear.open:all', '🗑', 'Svuota il disegno', false, 'danger'),
+  ].join('');
+}
+
+export function flyoutHTML(state) {
+  const f = state.flyout;
+  if (!f) return '';
+  const head = (title) => `<header class="flyHead"><b>${e(title)}</b>
+    <button class="mdlX" data-act="fly:none" title="Chiudi">✕</button></header>`;
+
+  if (f === 'add') {
+    const t = state.project.track;
+    return `<div class="flyBox">${head('Tratti del percorso')}
+      <div class="flyBody">
+        <div class="flyRow">
+          ${btn('el.addStraight', '+ Rettilineo')}
+          ${btn('el.addArc', '+ Curva')}
+        </div>
+        <div class="flyRow">${btn('track.closeLoop', 'Chiudi l\'anello alla partenza', 'primary')}</div>
+        <div class="flds">
+          ${num('Raggio interno predefinito', 'ui.drawRadius', state.drawRadius, { step: 0.5, min: 0 })}
+          ${num('Larghezza corsia', 'track.defaultWidth', t.defaultWidth, { step: 0.25, min: 0.5 })}
+        </div>
+        <div class="flyRow">${btn('track.applyWidthAll', 'Applica la larghezza a tutti', 'mini')}</div>
+        <p class="hint">Con la matita: primo clic la partenza, poi la corsia si allunga col puntatore e un secondo clic la fissa.</p>
+      </div>
+    </div>`;
+  }
+
+  if (f === 'struct') {
+    const groups = ['gimkane', 'barriere', 'rampe', 'altro'];
+    const body = groups.map((g) => {
+      const items = STRUCTURE_LIBRARY.filter((s) => s.group === g);
+      if (!items.length) return '';
+      return `<div class="flyGroup"><h5>${e(GROUP_LABELS[g] || g)}</h5>
+        <div class="lib">${items.map((s) => `<button class="libb${state.tool === 'add:' + s.key ? ' on' : ''}" data-act="st.pick:${s.key}" title="${e(s.note || s.name)}">
+          <b>${e(s.name)}</b><i>${fmt(s.length, 2)}×${fmt(s.width, 2)} · h ${fmt(s.height, 2)}</i></button>`).join('')}</div></div>`;
+    }).join('');
+    return `<div class="flyBox wide">${head('Libreria ostacoli')}
+      <div class="flyBody">
+        ${body}
+        <div class="flyRow">${btn('st.auto', 'Piazza automaticamente', 'primary')}${btn('clear.open:structures', 'Rimuovi…', 'danger')}</div>
+        <p class="hint">Scegli un ostacolo e poi tocca la mappa dove vuoi metterlo.</p>
+      </div>
+    </div>`;
+  }
+
+  if (f === 'gen') {
+    const gp = state.project.genParams;
+    return `<div class="flyBox">${head('Genera il percorso')}
+      <div class="flyBody">
+        <div class="flds">
+          ${num('Lunghezza totale', 'genParams.targetLength', gp.targetLength, { step: 10, hint: 'libera' })}
+          ${num('Larghezza corsia', 'genParams.width', gp.width, { step: 0.25, min: 0.5 })}
+          ${num('Varianti', 'genParams.seedCount', gp.seedCount, { step: 1, unit: '', min: 1, max: 12 })}
+        </div>
+        ${chk('Ammetti anelli con un secondo passaggio', 'genParams.closedLoop', gp.closedLoop !== false)}
+        <div class="flyRow">
+          ${btn('gen.runHere', '⚙️ Genera ora', 'primary')}
+          ${btn('tab:auto', 'Tutti i parametri')}
+        </div>
+        ${state.generating ? '<p class="hint">Sto calcolando…</p>' : ''}
+        ${(state.candidates || []).length ? `<p class="hint">${state.candidates.length} proposte pronte nella scheda <b>Genera</b>.</p>` : ''}
+      </div>
+    </div>`;
+  }
+  return '';
+}
+
 /* ------------------------------------------------------------ barra stato */
 
 export function statusHTML(state) {

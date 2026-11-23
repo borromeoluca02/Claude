@@ -166,6 +166,20 @@ completa di ostacoli e relative specifiche", Art. 65.3):
   *Salva come PDF* con margini «nessuno» e scala **100%**, senza «adatta alla
   pagina»), **SVG** (un file per foglio, vettoriale) e **PNG a 200 dpi**.
 
+### Barra strumenti sul disegno
+I comandi più usati stanno sulla sinistra dell'area di disegno, così restano
+raggiungibili anche a pannello chiuso e da telefono:
+
+* vista: ingrandisci, riduci, inquadra tutto, mostra o nascondi le quote,
+  aggancio alla griglia;
+* **✏️ matita**, **📐 tratti** (aggiungi rettilineo o curva, chiudi l'anello,
+  raggio e larghezza predefiniti), **🗺️ area** (modifica i lati), **🧱 libreria
+  ostacoli** (divisa nei gruppi del regolamento), **⚙️ genera** (parametri
+  rapidi e avvio), **🗑 svuota**.
+
+I pulsanti con menù aprono un riquadro accanto alla barra; si chiude con Esc o
+scegliendo una voce.
+
 ### Salvataggio ed export
 * Salvataggio automatico nel browser a ogni modifica, più l'elenco dei progetti
   salvati in locale.

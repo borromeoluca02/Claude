@@ -10,7 +10,7 @@ import { analyze, validStationRanges, extendTo, bakeTrack, projectPoint, edgePat
 import { generateCandidates, autoPlaceStructures } from './generator.js';
 import { render, fitView, toScreen, fmtM, fmt } from './render.js';
 import { attachInteractions } from './interact.js';
-import { panelHTML, tabsHTML, statusHTML, getPath, setPath, clearDialogHTML } from './ui.js';
+import { panelHTML, tabsHTML, statusHTML, getPath, setPath, clearDialogHTML, toolbarHTML, flyoutHTML } from './ui.js';
 import { homeHTML, AREA_PRESETS } from './home.js';
 import * as store from './store.js';
 import { buildPlateSet } from './plate.js';
@@ -27,6 +27,8 @@ const toastEl = $('#toast');
 const nameInput = $('#prjName');
 const homeEl = $('#home');
 const modalEl = $('#modal');
+const toolsEl = $('#floatTools');
+const flyEl = $('#flyout');
 const editorEl = $('#editor');
 
 /* ------------------------------------------------------------------ stato */
@@ -48,6 +50,7 @@ const state = {
   ghost: null,
   drawArmed: false,   // nel disegno da zero: la partenza è stata fissata?
   modal: null,        // finestra aperta (per ora solo 'clear')
+  flyout: null,       // menù a comparsa della barra strumenti
   clearSel: null,     // selezione della finestra di svuotamento
   generating: false,
   user: null,
@@ -115,14 +118,12 @@ function paintHint() {
   } else hintBar.hidden = true;
 }
 function syncToolButtons() {
-  document.querySelectorAll('.ft').forEach((b) => {
-    const act = b.getAttribute('data-act');
-    const on = (act === 'tool:draw' && state.tool === 'draw')
-      || (act === 'area.toggleEdit' && state.mode === 'area')
-      || (act === 'labels.toggle' && state.showLabels)
-      || (act === 'snap.toggle' && state.snap);
-    b.classList.toggle('on', !!on);
-  });
+  if (toolsEl) toolsEl.innerHTML = toolbarHTML(state);
+  if (flyEl) {
+    const html = flyoutHTML(state);
+    flyEl.innerHTML = html;
+    flyEl.hidden = !html;
+  }
   document.querySelectorAll('#discSeg .segb').forEach((b) => {
     b.classList.toggle('on', b.getAttribute('data-act') === 'discipline:' + state.project.discipline);
   });
@@ -218,6 +219,8 @@ function areaLabel() {
 
 /* modifica in corso (trascinamento): aggiorna solo la mappa */
 function live() { reanalyze(); paint(); paintStatus(); }
+
+function paintTools() { syncToolButtons(); }
 
 /* modifica conclusa: cronologia, pannello, salvataggio automatico */
 function commit() {
@@ -391,6 +394,7 @@ const actions = {
   'labels.toggle': () => { state.showLabels = !state.showLabels; paint(); syncToolButtons(); },
   'snap.toggle': () => { state.snap = !state.snap; toast(state.snap ? 'Aggancio 25 cm attivo' : 'Aggancio disattivato'); syncToolButtons(); },
   'tool:draw': () => {
+    state.flyout = null;
     state.tool = state.tool === 'draw' ? null : 'draw';
     state.mode = 'select';
     state.ghost = null;
@@ -399,6 +403,20 @@ const actions = {
     paintPanel(); paint();
   },
   'tool:none': () => { state.tool = null; state.mode = 'select'; state.ghost = null; paintPanel(); paint(); },
+
+  /* --- barra strumenti sul disegno --- */
+  fly: (which) => {
+    state.flyout = (which === 'none' || state.flyout === which) ? null : which;
+    if (state.flyout) state.tool = state.tool && state.tool.startsWith('add:') && state.flyout === 'struct' ? state.tool : state.tool;
+    paintTools();
+  },
+  'gen.runHere': () => {
+    state.tab = 'auto';
+    state.flyout = null;
+    panel.classList.add('open');
+    paintPanel();
+    runGeneration(Math.floor(Math.random() * 90000) + 10);
+  },
 
   /* --- svuotamento selettivo --- */
   'clear.open': (scope) => {
@@ -521,6 +539,7 @@ const actions = {
   'area.shape': (shape) => { regenerateArea(shape); commit(); fit(); },
   'area.apply': () => { regenerateArea(state.project.area.shape); commit(); fit(); },
   'area.toggleEdit': () => {
+    state.flyout = null;
     state.mode = state.mode === 'area' ? 'select' : 'area';
     if (state.mode === 'area') { state.tool = null; state.tab = 'area'; }
     paintPanel(); paint();
@@ -666,6 +685,7 @@ const actions = {
   'st.pick': (key) => {
     state.tool = state.tool === 'add:' + key ? null : 'add:' + key;
     state.mode = 'select';
+    state.flyout = null;                       // scelto l'ostacolo, il menù si chiude
     paintPanel();
     if (state.tool && window.matchMedia('(max-width:860px)').matches) panel.classList.remove('open');
   },
@@ -1016,6 +1036,7 @@ document.addEventListener('change', (ev) => {
 document.addEventListener('keydown', (ev) => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName);
   if (ev.key === 'Escape' && state.modal) { closeModal(); return; }
+  if (ev.key === 'Escape' && state.flyout) { state.flyout = null; paintTools(); return; }
   if (ev.key === 'Escape') { state.tool = null; state.mode = 'select'; state.selection = null; state.ghost = null; paintPanel(); paint(); return; }
   if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z') {
     ev.preventDefault();
