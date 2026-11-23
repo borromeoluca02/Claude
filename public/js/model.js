@@ -143,6 +143,8 @@ export function createProject(opts = {}) {
       start: { x: b.minX + 10, y: b.minY + 8, heading: 0 },
       defaultWidth: width,
       closed: false,
+      laps: 1,            // giri completi sull'anello (massimo 2)
+      extra: 0,           // metri di giro parziale dopo i giri completi
       elements: opts.elements || defaultTrackElements(width),
     },
     structures: opts.structures || [],
@@ -158,6 +160,7 @@ export function createProject(opts = {}) {
       margin: 1.5,             // m di margine dal bordo area
       strategy: 'auto',
       seedCount: 6,
+      closedLoop: true,   // ammette anelli da ripetere a giri
     },
     plate: {
       sheet: 'A3', orientation: 'landscape', scale: 'auto',
@@ -237,6 +240,8 @@ export function normalizeProject(raw) {
     },
     defaultWidth: +(t.defaultWidth ?? 5),
     closed: !!t.closed,
+    laps: G.clamp(Math.round(+(t.laps ?? 1) || 1), 1, 2),   // mai più di due giri
+    extra: Math.max(0, +(t.extra ?? 0) || 0),
     elements: (Array.isArray(t.elements) ? t.elements : []).map((e) => {
       const w0 = +(e.widthStart ?? t.defaultWidth ?? 5);
       const w1 = +(e.widthEnd ?? w0);

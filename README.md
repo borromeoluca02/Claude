@@ -97,6 +97,23 @@ strutture e **le differenze rispetto a quanto hai chiesto** (per esempio
 subito cosa l'area riesce davvero a contenere. *Usa questa opzione* la carica
 nell'editor, dove resta modificabile come un percorso disegnato a mano.
 
+### Anello, giri e secondo passaggio
+Su aree piccole un percorso da 250 m in un giro solo non ci sta. L'app allora:
+
+* **chiude l'anello** sulla partenza con un raccordo a tangenza continua
+  (curva-rettilineo-curva), così l'innesto è percorribile e non è uno spigolo;
+  dove c'è spazio lascia anche il rettilineo di arrivo prima della linea;
+* calcola **quanto ripassare**: prima verifica che con un giro solo non ci si
+  arrivi, poi aggiunge solo i metri mancanti del secondo passaggio, senza
+  chiudere per forza un secondo giro (per esempio «giro da 160 m + 115 m»);
+* non va **mai oltre due passaggi** sugli stessi tratti;
+* controlla le distanze **anche a cavallo della partenza** e sposta la linea di
+  arrivo sulla progressiva dove la gara finisce davvero.
+
+Nella scheda *Genera* l'opzione «Ammetti anelli con un secondo passaggio» decide
+se queste proposte vanno prodotte; nella scheda *Percorso* si regolano a mano
+giri completi e metri del secondo passaggio.
+
 ### Verifica di conformità
 La scheda *Verifica* confronta il progetto con il Regolamento Tecnico e elenca
 ogni controllo con esito e riferimento all'articolo. Per il roller cross:

@@ -155,6 +155,7 @@ function trackPanel(state) {
   const t = state.project.track;
   const st = state.analysis.status;
   const baked = state.analysis.baked;
+  const st2 = state.analysis.stats;
 
   const rows = t.elements.map((el, i) => {
     const b = baked.elements[i] || {};
@@ -199,7 +200,6 @@ function trackPanel(state) {
     <p class="hint">${state.tool === 'draw'
       ? 'Muovi il puntatore sulla mappa: vedi in tempo reale il tratto che stai per aggiungere, con la sua lunghezza e lo sviluppo totale. Clicca per fissarlo. Se le distanze o le misure non tornano il tratto resta verde o diventa rosso, ma il clic vale comunque. Esc per uscire.'
       : 'Trascina i pallini bianchi per allungare i rettilinei; sul pallino di una curva selezionata controlli insieme raggio e angolo. Le strutture si trascinano direttamente, anche prendendole dal nome.'}</p>
-    <div class="flds">${num('Raggio predefinito', 'ui.drawRadius', state.drawRadius, { step: 0.5, min: 0.5 })}</div>
   </section>
   <section class="grp">
     <h3>Partenza del tracciato</h3>
@@ -208,6 +208,23 @@ function trackPanel(state) {
       ${num('Y', 'track.start.y', t.start.y, { step: 0.5 })}
       ${num('Direzione', 'track.start.heading', t.start.heading, { step: 5, unit: '°' })}
     </div>
+  </section>
+  <section class="grp">
+    <h3>Anello e giri</h3>
+    <p class="hint">${st2.isClosed
+      ? `<b class="cOk">Anello chiuso</b>: il percorso rientra in partenza con la stessa direzione, quindi si può ripetere a giri.`
+      : `<b>Anello aperto</b>: il percorso finisce lontano dalla partenza${baked.elements.length ? ` (${fmtM(st2.closeGap, 1)}, ${fmt(st2.closeTurn, 0)}° di scarto)` : ''}.`}</p>
+    <div class="flds">
+      ${num('Giri completi', 'track.laps', t.laps || 1, { step: 1, unit: '×', min: 1, max: 2 })}
+      ${num('Secondo passaggio', 'track.extra', t.extra || 0, { step: 5, min: 0, hint: 'nessuno' })}
+      ${num('Raggio del raccordo', 'ui.drawRadius', state.drawRadius, { step: 0.5, min: 1 })}
+    </div>
+    ${st2.isClosed && st2.raceLength > st2.totalLength + 0.5
+      ? `<p class="hint">Sviluppo di gara: <b>${st2.extra > 0
+          ? `${fmtM(st2.totalLength, 2)} + ${fmtM(st2.extra, 2)} = ${fmtM(st2.raceLength, 2)}</b>, con l'arrivo alla progressiva ${fmtM(st2.finishStation, 1)} del secondo passaggio`
+          : `${fmtM(st2.totalLength, 2)} × ${st2.laps} = ${fmtM(st2.raceLength, 2)}</b>`}. Le distanze sono controllate anche a cavallo della partenza.</p>`
+      : '<p class="hint">Utile sulle aree piccole: si chiude l\'anello e si ripassa quanto basta per arrivare alla lunghezza richiesta. <b>Secondo passaggio</b> sono i metri da ripetere dopo il giro completo: non serve concludere un secondo giro intero.</p>'}
+    <div class="row">${btn('track.closeLoop', 'Chiudi l\'anello alla partenza', 'primary')}${st2.raceLength > st2.totalLength + 0.5 ? btn('track.openLoop', 'Torna a un giro solo') : ''}</div>
   </section>
   <section class="grp">
     <h3>Larghezza corsia</h3>
@@ -398,6 +415,8 @@ function autoPanel(state) {
       ${num('Varianti da proporre', 'genParams.seedCount', gp.seedCount, { step: 1, unit: '', min: 1, max: 12 })}
       ${sel('Schema', 'genParams.strategy', gp.strategy, [['auto', 'Tutti gli schemi'], ['serpentina', 'Serpentina'], ['ovale', 'Ovale'], ['spirale', 'Spirale'], ['organica', 'Libera']])}
     </div>
+    ${chk('Ammetti anelli con un secondo passaggio', 'genParams.closedLoop', gp.closedLoop !== false)}
+    <p class="hint">Prima il generatore prova a far stare tutto in <b>un giro solo</b>. Se con l'area e i parametri dati non ci sta, e questa opzione è attiva, propone percorsi che <b>rientrano in partenza</b> e ripassano una seconda volta: solo per i metri che mancano, senza chiudere per forza un secondo giro (per esempio «giro da 160 m + 115 m»). Mai più di due passaggi. Le proposte sono marcate «anello».</p>
   </section>
   <section class="grp">
     <h3>Curve richieste</h3>

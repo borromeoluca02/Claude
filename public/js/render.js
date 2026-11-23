@@ -168,16 +168,19 @@ function corridor(state, S) {
 
   // asse
   s += `<path class="axis" d="${pathOf(S, baked.samples)}"/>`;
-  // linea d'arrivo
+  // linea d'arrivo: sull'anello con secondo passaggio cade dove finisce la gara
   if (baked.elements.length) {
-    const f = frameAt(baked, baked.totalLength);
+    const sts0 = analysis.stats;
+    const fs = sts0.isClosed && sts0.extra > 0 ? sts0.finishStation : baked.totalLength;
+    const f = frameAt(baked, fs);
     const n = leftOf(f.heading);
     const a = S(add(f.point, mul(n, f.width / 2)));
     const b = S(sub(f.point, mul(n, f.width / 2)));
     s += `<line class="finish" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"/>`;
     if (view.scale > 3) {
       const p = S(add(f.point, mul(dirOf(f.heading), 1.4)));
-      s += label(p.x, p.y, 'ARRIVO', 'finishLbl', screenAngle(f.heading), ' text-anchor="middle"');
+      s += label(p.x, p.y, sts0.isClosed && sts0.raceLength > sts0.totalLength + 0.5 ? 'ARRIVO · 2° passaggio' : 'ARRIVO',
+        'finishLbl', screenAngle(f.heading), ' text-anchor="middle"');
     }
   }
   return s + '</g>';
@@ -315,9 +318,14 @@ function trackLabels(state, S, detail) {
   cx /= baked.samples.length; cy /= baked.samples.length;
   const toward = G.dot(sub({ x: cx, y: cy }, mid.point), n) >= 0 ? 1 : -1;
   const pm = S(add(mid.point, mul(n, toward * (mid.width / 2 + 2.6))));
-  s += `<rect class="totalBg" x="${(pm.x - 76).toFixed(1)}" y="${(pm.y - 16).toFixed(1)}" width="152" height="32" rx="7"/>`;
-  s += label(pm.x, pm.y - 1, `Sviluppo asse ${fmtM(baked.totalLength, 2)}`, 'totalLbl', 0, ' text-anchor="middle"');
-  s += label(pm.x, pm.y + 12, `corsia ${fmtM(analysis.stats.minWidth, 2)}–${fmtM(analysis.stats.maxWidth, 2)}`, 'totalSub', 0, ' text-anchor="middle"');
+  const sts = analysis.stats;
+  const multi = sts.laps > 1;
+  const bw = multi ? 184 : 152;
+  s += `<rect class="totalBg" x="${(pm.x - bw / 2).toFixed(1)}" y="${(pm.y - 16).toFixed(1)}" width="${bw}" height="32" rx="7"/>`;
+  s += label(pm.x, pm.y - 1, multi
+    ? `Giro ${fmtM(baked.totalLength, 2)} × ${sts.laps} = ${fmtM(sts.raceLength, 2)}`
+    : `Sviluppo asse ${fmtM(baked.totalLength, 2)}`, 'totalLbl', 0, ' text-anchor="middle"');
+  s += label(pm.x, pm.y + 12, `corsia ${fmtM(sts.minWidth, 2)}–${fmtM(sts.maxWidth, 2)}${sts.isClosed ? ' · anello chiuso' : ''}`, 'totalSub', 0, ' text-anchor="middle"');
 
   if (!detail) return s + '</g>';
 

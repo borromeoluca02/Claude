@@ -276,6 +276,18 @@ export function analyze(project) {
   const rules = project.rules;
   const obstacles = collectObstacles(project, baked);
   const issues = [];
+
+  /* anello: il tracciato torna in partenza con la stessa direzione? */
+  const closeGap = G.dist(baked.endPoint, baked.startPoint);
+  const closeTurn = Math.abs(G.wrapPi(baked.endHeading - baked.startHeading)) * G.RAD;
+  const isClosed = baked.elements.length > 1 && closeGap <= 1.2 && closeTurn <= 8;
+  const laps = isClosed ? G.clamp(Math.round(project.track.laps || 1), 1, 2) : 1;
+  // tratto parziale: si ripassa solo una parte del giro, senza concluderlo
+  const extra = isClosed ? G.clamp(+project.track.extra || 0, 0, Math.max(0, baked.totalLength - 0.5)) : 0;
+  const raceLength = baked.totalLength * laps + extra;
+  // progressiva su cui cade la linea di arrivo nell'ultimo passaggio
+  const finishStation = extra > 0 ? extra : baked.totalLength;
+
   const status = {};  // id → { level:'ok'|'bad'|'warn', gap, reasons:[] }
 
   const setStatus = (id, level, reason) => {
@@ -321,13 +333,37 @@ export function analyze(project) {
     prev = ob;
   }
 
-  /* 1b. distanza dell'ultimo ostacolo dalla linea di arrivo */
-  const lastObstacle = obstacles.filter((o) => o.kind !== 'start').slice(-1)[0];
-  if (lastObstacle && rules.finishMin > 0) {
-    const d = baked.totalLength - lastObstacle.sEnd;
+  /* 1b. distanza dell'ultimo ostacolo dalla linea di arrivo.
+         Su un anello l'arrivo cade sulla progressiva dell'ultimo passaggio,
+         quindi l'ostacolo da controllare è l'ultimo prima di quel punto. */
+  const obsNoStart = obstacles.filter((o) => o.kind !== 'start');
+  if (obsNoStart.length && rules.finishMin > 0) {
+    let target = obsNoStart[obsNoStart.length - 1];
+    let d;
+    if (!isClosed) {
+      d = baked.totalLength - target.sEnd;
+    } else {
+      const before = obsNoStart.filter((o) => o.sEnd <= finishStation + 1e-6);
+      if (before.length) { target = before[before.length - 1]; d = finishStation - target.sEnd; }
+      else { d = (baked.totalLength - target.sEnd) + finishStation; }
+    }
     if (d < rules.finishMin - 1e-6) {
-      setStatus(lastObstacle.id, 'bad', `Distanza dall'arrivo di ${n2(d, 2)} m: sotto il minimo di ${n2(rules.finishMin)} m`);
-      issues.push({ level: 'bad', target: lastObstacle.id, text: `${lastObstacle.label}: ${n2(d, 2)} m dall'arrivo (min ${n2(rules.finishMin)} m)` });
+      setStatus(target.id, 'bad', `Distanza dall'arrivo di ${n2(d, 2)} m: sotto il minimo di ${n2(rules.finishMin)} m`);
+      issues.push({ level: 'bad', target: target.id, text: `${target.label}: ${n2(d, 2)} m dall'arrivo (min ${n2(rules.finishMin)} m)` });
+    }
+  }
+
+  /* 1c. nei percorsi a più giri conta anche la distanza attraverso la giunzione */
+  const realObs = obstacles.filter((o) => o.kind !== 'start');
+  if (isClosed && laps > 1 && realObs.length) {
+    const first = realObs[0], last = realObs[realObs.length - 1];
+    const wrap = (baked.totalLength - last.sEnd) + first.sStart;
+    if (wrap < rules.minGap - 1e-6) {
+      setStatus(first.id, 'bad', `A cavallo della partenza restano ${n2(wrap)} m da "${last.label}": sotto il minimo di ${n2(rules.minGap)} m`);
+      issues.push({ level: 'bad', target: first.id, text: `Fra ${last.label} e ${first.label}, passando dalla partenza, ci sono ${n2(wrap)} m (min ${n2(rules.minGap)} m)` });
+    } else if (wrap > rules.maxGap + 1e-6) {
+      setStatus(first.id, 'warn', `A cavallo della partenza ci sono ${n2(wrap)} m senza ostacoli`);
+      issues.push({ level: 'warn', target: first.id, text: `Fra ${last.label} e ${first.label}, passando dalla partenza, ci sono ${n2(wrap)} m (max ${n2(rules.maxGap)} m)` });
     }
   }
 
@@ -409,6 +445,7 @@ export function analyze(project) {
   const areaVal = Math.abs(G.polygonArea(areaPts));
   const stats = {
     totalLength: baked.totalLength,
+    isClosed, closeGap, closeTurn, laps, extra, raceLength, finishStation,
     straightLength: baked.elements.filter((e) => e.type === 'straight').reduce((a, e) => a + e.length, 0),
     curveLength: curves.reduce((a, e) => a + e.length, 0),
     curveCount: curves.length,
@@ -466,9 +503,12 @@ export function regulationChecks(project, baked, obstacles, stats) {
 
   if (project.discipline === 'roller') {
     const R = ROLLER;
+    const race = stats.raceLength;
     add('Lunghezza totale 250–300 m',
-      baked.totalLength >= R.totalLengthMin && baked.totalLength <= R.totalLengthMax,
-      `${n2(baked.totalLength, 1)} m`, 'Art. 65.4');
+      race >= R.totalLengthMin && race <= R.totalLengthMax,
+      stats.laps > 1
+        ? `${n2(race, 1)} m (${n2(baked.totalLength, 1)} m × ${stats.laps} giri)`
+        : `${n2(race, 1)} m`, 'Art. 65.4');
 
     // rettilineo di partenza: primo elemento rettilineo, almeno 20 m
     const first = els[0];
@@ -679,6 +719,102 @@ export function extendTo(baked, P, R = 8, width = 5) {
   const els = [mk('arc', { radius: G.round(r, 2), angle: G.round(angle, 1), dir: dirSide })];
   if (tanLen > 0.3) els.push(mk('straight', { length: G.round(tanLen, 2) }));
   return els;
+}
+
+/* --------------------------------------------------- chiusura ad anello */
+
+const mod2pi = (a) => { const r = a % (2 * Math.PI); return r < 0 ? r + 2 * Math.PI : r; };
+
+/**
+ * Percorsi di Dubins (curva-rettilineo-curva) che portano dalla posa corrente
+ * alla posa di partenza con tangenza continua: servono a chiudere l'anello in
+ * modo che l'innesto sulla partenza sia percorribile, non uno spigolo.
+ * Restituisce le quattro combinazioni valide ordinate per lunghezza.
+ */
+export function dubinsPaths(from, to, r) {
+  const dx = to.x - from.x, dy = to.y - from.y;
+  const D = Math.hypot(dx, dy);
+  const d = D / r;
+  const theta = mod2pi(Math.atan2(dy, dx));
+  const a = mod2pi(from.heading - theta);
+  const b = mod2pi(to.heading - theta);
+  const sa = Math.sin(a), ca = Math.cos(a), sb = Math.sin(b), cb = Math.cos(b);
+  const cab = Math.cos(a - b);
+  const out = [];
+
+  // LSL
+  let psq = 2 + d * d - 2 * cab + 2 * d * (sa - sb);
+  if (psq >= 0) {
+    const tmp = Math.atan2(cb - ca, d + sa - sb);
+    out.push({ type: 'LSL', t: mod2pi(-a + tmp), p: Math.sqrt(psq), q: mod2pi(b - tmp), dirs: ['left', 'left'] });
+  }
+  // RSR
+  psq = 2 + d * d - 2 * cab + 2 * d * (sb - sa);
+  if (psq >= 0) {
+    const tmp = Math.atan2(ca - cb, d - sa + sb);
+    out.push({ type: 'RSR', t: mod2pi(a - tmp), p: Math.sqrt(psq), q: mod2pi(-b + tmp), dirs: ['right', 'right'] });
+  }
+  // LSR
+  psq = -2 + d * d + 2 * cab + 2 * d * (sa + sb);
+  if (psq >= 0) {
+    const p = Math.sqrt(psq);
+    const tmp = Math.atan2(-ca - cb, d + sa + sb) - Math.atan2(-2, p);
+    out.push({ type: 'LSR', t: mod2pi(-a + tmp), p, q: mod2pi(-mod2pi(b) + tmp), dirs: ['left', 'right'] });
+  }
+  // RSL
+  psq = -2 + d * d + 2 * cab - 2 * d * (sa + sb);
+  if (psq >= 0) {
+    const p = Math.sqrt(psq);
+    const tmp = Math.atan2(ca + cb, d - sa - sb) - Math.atan2(2, p);
+    out.push({ type: 'RSL', t: mod2pi(a - tmp), p, q: mod2pi(b - tmp), dirs: ['right', 'left'] });
+  }
+  return out
+    .map((s) => ({ ...s, length: (s.t + s.q) * r + s.p * r, radius: r }))
+    .filter((s) => Number.isFinite(s.length))
+    .sort((x, y) => x.length - y.length);
+}
+
+/** traduce un percorso di Dubins negli elementi del tracciato */
+export function dubinsElements(sol, width) {
+  const mk = (type, o) => ({ id: 'el_' + Math.random().toString(36).slice(2, 9), type, widthStart: width, widthEnd: width, ...o });
+  const els = [];
+  const degT = sol.t * G.RAD, degQ = sol.q * G.RAD;
+  if (degT > 0.3) els.push(mk('arc', { radius: G.round(sol.radius, 2), angle: G.round(degT, 1), dir: sol.dirs[0] }));
+  const straight = sol.p * sol.radius;
+  if (straight > 0.3) els.push(mk('straight', { length: G.round(straight, 2) }));
+  if (degQ > 0.3) els.push(mk('arc', { radius: G.round(sol.radius, 2), angle: G.round(degQ, 1), dir: sol.dirs[1] }));
+  return els;
+}
+
+/**
+ * Elementi che riportano la fine del tracciato sulla linea di partenza con la
+ * stessa direzione, così il percorso si può ripetere a giri.
+ * Prova più raggi e restituisce le soluzioni dalla più corta alla più lunga.
+ */
+export function closeToStartOptions(baked, width, radii = [3, 4, 5, 6, 8, 10], runout = 0) {
+  const from = { x: baked.endPoint.x, y: baked.endPoint.y, heading: baked.endHeading };
+  // con `runout` il raccordo punta a un punto arretrato rispetto alla partenza,
+  // così l'anello si chiude con un rettilineo davanti alla linea d'arrivo
+  const d0 = dirOf(baked.startHeading);
+  const to = {
+    x: baked.startPoint.x - d0.x * runout,
+    y: baked.startPoint.y - d0.y * runout,
+    heading: baked.startHeading,
+  };
+  const sols = [];
+  for (const r of radii) {
+    for (const s of dubinsPaths(from, to, r)) sols.push(s);
+  }
+  return sols
+    .sort((a, b) => a.length - b.length)
+    .map((s) => {
+      const elements = dubinsElements(s, width);
+      if (runout > 0.2 && elements.length) {
+        elements.push({ id: 'el_' + Math.random().toString(36).slice(2, 9), type: 'straight', length: G.round(runout, 2), widthStart: width, widthEnd: width });
+      }
+      return { ...s, length: s.length + runout, elements };
+    })
+    .filter((s) => s.elements.length);
 }
 
 export { libraryItem };

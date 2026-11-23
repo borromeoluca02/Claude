@@ -6,7 +6,7 @@ import {
   DEFAULT_RULES, DEFAULT_START_GATE, DEFAULT_START_RAMP, libraryItem,
 } from './model.js';
 import { rulePreset, categoryInfo, ROLLER } from './regulation.js';
-import { analyze, validStationRanges, extendTo, bakeTrack, projectPoint, edgePaths } from './track.js';
+import { analyze, validStationRanges, extendTo, bakeTrack, projectPoint, edgePaths, closeToStartOptions } from './track.js';
 import { generateCandidates, autoPlaceStructures } from './generator.js';
 import { render, fitView, toScreen, fmtM, fmt } from './render.js';
 import { attachInteractions } from './interact.js';
@@ -411,11 +411,55 @@ const actions = {
   },
   'track.closeLoop': () => {
     const baked = state.analysis.baked;
-    const els = extendTo(baked, baked.startPoint, state.drawRadius, state.project.track.defaultWidth);
-    if (!els.length) return toast('Sei già in partenza', true);
-    state.project.track.elements.push(...els);
-    commit(); toast('Anello chiuso verso la partenza');
+    if (!baked.elements.length) return toast('Disegna prima almeno un tratto', true);
+    const width = state.project.track.defaultWidth;
+    const radii = [...new Set([state.drawRadius, 2.5, 3, 4, 5, 6, 8, 10])].filter((r) => r >= 1);
+    const ro = state.project.rules.finishMin || 0;
+    // si preferisce chiudere con un rettilineo davanti all'arrivo; se non ci
+    // sta, si accorcia e al limite si chiude senza
+    let chosen = null, options = [];
+    for (const runout of [...new Set([ro, ro / 2, 0])]) {
+      options = closeToStartOptions(baked, width, radii, runout);
+      for (const o of options.slice(0, 14)) {
+        const clone = JSON.parse(JSON.stringify(state.project));
+        clone.track.elements.push(...JSON.parse(JSON.stringify(o.elements)));
+        const a2 = analyze(clone);
+        if (!a2.stats.outsideRuns) { chosen = o; break; }
+      }
+      if (chosen) break;
+    }
+    if (!options.length) return toast('Non trovo un raccordo verso la partenza', true);
+    const fallback = !chosen;
+    if (!chosen) chosen = options[0];
+    state.project.track.elements.push(...chosen.elements);
+    state.project.track.closed = true;
+    reanalyze();
+    // se il giro è più corto del minimo, propone i giri necessari
+    const st = state.analysis.stats;
+    if (st.isClosed && state.project.discipline === 'roller' && st.totalLength < ROLLER.totalLengthMin) {
+      // si ripassa solo per i metri che mancano, senza chiudere un secondo giro
+      const target = state.project.genParams.targetLength
+        || (ROLLER.totalLengthMin + ROLLER.totalLengthMax) / 2;
+      if (st.totalLength * 2 >= target) {
+        state.project.track.laps = 1;
+        state.project.track.extra = G.round(target - st.totalLength, 1);
+      } else {
+        state.project.track.laps = 2;
+        state.project.track.extra = 0;
+      }
+    }
+    commit();
+    const s = state.analysis.stats;
+    const passes = s.extra > 0
+      ? ` · giro ${fmtM(s.totalLength, 1)} + ${fmtM(s.extra, 1)} = ${fmtM(s.raceLength, 1)}`
+      : s.laps > 1 ? ` · ${s.laps} passaggi = ${fmtM(s.raceLength, 1)}` : '';
+    toast(fallback
+      ? `Anello chiuso, ma il raccordo esce dall'area: ${fmtM(chosen.length, 1)}`
+      : `Anello chiuso con ${fmtM(chosen.length, 1)} di raccordo${passes}`,
+      fallback);
   },
+  'track.laps': (n) => { state.project.track.laps = G.clamp(Math.round(+n || 1), 1, 2); commit(); },
+  'track.openLoop': () => { state.project.track.laps = 1; state.project.track.extra = 0; commit(); toast('Tornato a un giro solo'); },
   'track.clear': () => {
     if (!confirm('Eliminare tutti gli elementi del percorso?')) return;
     state.project.track.elements = [];

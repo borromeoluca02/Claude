@@ -6,7 +6,7 @@
 import * as G from './geometry.js';
 import { uid, libraryItem, STRUCTURE_LIBRARY, makeStructure } from './model.js';
 import { ROLLER } from './regulation.js';
-import { bakeTrack, analyze, collectObstacles } from './track.js';
+import { bakeTrack, analyze, collectObstacles, closeToStartOptions } from './track.js';
 
 const { DEG, add, mul, sub, dirOf, leftOf, clamp } = G;
 
@@ -179,7 +179,10 @@ function serpentine(poly, opt) {
         const rangeN = projectRange(poly, origin, n);
         const rangeD = projectRange(poly, origin, d);
         const lanes = [];
-        const spacing = Math.max(2 * R, width + 0.5);
+        // passo fra corsie: mai meno della larghezza della corsia più un franco
+        const spacing = Math.max(2 * R, width + 0.6);
+        const connector = spacing - 2 * R;           // raccordo dritto nel tornante
+        const turnLength = R * Math.PI + connector;
         // dal lato "basso" verso l'alto se firstDir = left
         const startLat = firstDir === 'left' ? rangeN.min + inset : rangeN.max - inset;
         const sign = firstDir === 'left' ? 1 : -1;
@@ -202,7 +205,7 @@ function serpentine(poly, opt) {
         if (target) {
           let acc = 0, n = 0;
           for (let k = 0; k < lanes.length; k++) {
-            acc += lanes[k].len + (k ? R * Math.PI : 0);
+            acc += lanes[k].len + (k ? turnLength : 0);
             n = k + 1;
             if (acc >= target && n >= minLanes) break;
           }
@@ -210,7 +213,7 @@ function serpentine(poly, opt) {
         }
         if (useLanes < 2) continue;
         const used = lanes.slice(0, useLanes);
-        const turnTotal = (useLanes - 1) * R * Math.PI;
+        const turnTotal = (useLanes - 1) * turnLength;
         const straightTotal = used.reduce((a, l) => a + l.len, 0);
         let scale = 1;
         if (target && straightTotal + turnTotal > target && straightTotal > 0) {
@@ -224,14 +227,22 @@ function serpentine(poly, opt) {
         for (let k = 0; k < used.length; k++) {
           plan.push({ type: 'straight', length: Math.max(minStraight, used[k].len * scale), width });
           if (k < used.length - 1) {
-            plan.push({ type: 'arc', radius: R, angle: 180, dir: turnDir, width });
+            if (connector > 0.05) {
+              // tornante a U con un breve raccordo, come nei percorsi reali
+              plan.push({ type: 'arc', radius: R, angle: 90, dir: turnDir, width });
+              plan.push({ type: 'straight', length: G.round(connector, 2), width });
+              plan.push({ type: 'arc', radius: R, angle: 90, dir: turnDir, width });
+            } else {
+              plan.push({ type: 'arc', radius: R, angle: 180, dir: turnDir, width });
+            }
             turnDir = turnDir === 'left' ? 'right' : 'left';
           }
         }
         const l0 = lanes[0];
         const startPoint = add(add(origin, mul(n, l0.lat)), mul(d, l0.from));
         out.push({
-          strategy: 'serpentina', name: `Serpentina R${G.round(R, 1)} · ${headingDeg}°`,
+          strategy: 'serpentina',
+          name: `Serpentina R${G.round(R, 1)} · ${headingDeg}° · ${firstDir === 'left' ? 'sx' : 'dx'}`,
           plan, start: { x: startPoint.x, y: startPoint.y, heading: headingDeg },
         });
       }
@@ -505,6 +516,75 @@ export function autoPlaceStructures(project, opts = {}) {
   return placed.length;
 }
 
+/** il raccordo di chiusura resta dentro l'area? */
+function closureFits(o, baked, opt) {
+  const plan = o.elements.map((e) => (e.type === 'arc'
+    ? { type: 'arc', radius: e.radius, angle: e.angle, dir: e.dir, width: opt.width }
+    : { type: 'straight', length: e.length, width: opt.width }));
+  let pose = { point: baked.endPoint, heading: baked.endHeading };
+  for (const el of plan) {
+    const r = walk(pose, el, 1.0);
+    for (const q of r.pts) if (!okPoint(q, opt.poly, opt.margin)) return false;
+    pose = r.pose;
+  }
+  return true;
+}
+
+/**
+ * Da un percorso aperto ricava la variante ad anello: aggiunge il raccordo di
+ * Dubins verso la partenza, calcola quanti giri servono per avvicinarsi alla
+ * lunghezza richiesta e ridistribuisce gli ostacoli.
+ */
+function makeLoopVariant(openProject, opt) {
+  const rules = opt.rules;
+  const base = JSON.parse(JSON.stringify(openProject));
+  base.structures = [];
+  const baked = bakeTrack(base);
+  if (baked.elements.length < 2) return null;
+  if (G.dist(baked.endPoint, baked.startPoint) < 1.2) return null;   // già chiuso
+
+  // il tratto d'arrivo prima della linea è preferibile ma non sempre ci sta:
+  // si prova a ridurlo e, in ultima istanza, si chiude senza
+  const runouts = [...new Set([opt.runout || 0, (opt.runout || 0) / 2, 0])].filter((v) => v >= 0);
+  let options = [];
+  for (const ro of runouts) {
+    options = closeToStartOptions(baked, opt.width, opt.radii, ro);
+    const fits = options.slice(0, 12).some((o) => closureFits(o, baked, opt));
+    if (fits) break;
+  }
+  let chosen = null;
+  for (const o of options.slice(0, 12)) {
+    if (closureFits(o, baked, opt)) { chosen = o; break; }
+  }
+  if (!chosen) return null;
+
+  base.track.elements.push(...JSON.parse(JSON.stringify(chosen.elements)));
+  base.track.closed = true;
+  const lap = bakeTrack(base).totalLength;
+  const target = opt.target || ((ROLLER.totalLengthMin + ROLLER.totalLengthMax) / 2);
+  // Un giro solo quando basta. Se non basta si ripassa una seconda volta, ma
+  // solo per il tratto necessario: niente giri interi in più del dovuto, e in
+  // ogni caso mai più di due passaggi.
+  if (lap >= target * 0.92) {
+    base.track.laps = 1; base.track.extra = 0;
+  } else if (lap * 2 >= target) {
+    base.track.laps = 1; base.track.extra = G.round(target - lap, 1);
+  } else {
+    base.track.laps = 2; base.track.extra = 0;
+  }
+  autoPlaceStructures(base, { count: base.genParams ? base.genParams.structureCount ?? null : null });
+
+  // l'arrivo del secondo passaggio non deve cadere subito dopo un ostacolo
+  if (base.track.extra > 0 && rules.finishMin > 0) {
+    const a = analyze(base);
+    const prev = a.obstacles.filter((o) => o.kind !== 'start' && o.sEnd <= base.track.extra + 1e-6).slice(-1)[0];
+    if (prev && base.track.extra - prev.sEnd < rules.finishMin) {
+      base.track.extra = G.round(Math.min(prev.sEnd + rules.finishMin, bakeTrack(base).totalLength - 0.5), 1);
+    }
+  }
+  return base;
+}
+
 /* ------------------------------------------------------------- punteggio */
 
 function scoreCandidate(project, cand) {
@@ -513,8 +593,8 @@ function scoreCandidate(project, cand) {
   let score = 0;
   const notes = [];
 
-  // lunghezza
-  const L = a.stats.totalLength;
+  // lunghezza: nei percorsi ad anello conta lo sviluppo di gara (giri compresi)
+  const L = a.stats.raceLength || a.stats.totalLength;
   if (gp.targetLength) {
     const err = Math.abs(L - gp.targetLength);
     score -= err * 2.5;
@@ -526,6 +606,8 @@ function scoreCandidate(project, cand) {
     score -= off * 2.5;
     score += off ? 0 : 150;
     if (off) notes.push(`lunghezza ${G.round(L, 0)} m, fuori dall'intervallo 250–300 m`);
+    if (a.stats.laps > 1) notes.push(`${a.stats.laps} passaggi sul giro da ${G.round(a.stats.totalLength, 0)} m`);
+    if (a.stats.extra > 0) notes.push(`un giro da ${G.round(a.stats.totalLength, 0)} m più ${G.round(a.stats.extra, 0)} m di secondo passaggio`);
   } else {
     score += L * 0.8;
   }
@@ -578,7 +660,9 @@ export function generateCandidates(baseProject, options = {}) {
 
   // raggi da usare: quelli richiesti + alcuni standard
   const reqRadii = (gp.curveReqs || []).map((r) => +r.radius).filter((r) => r > 0.5);
-  const stdRadii = [5, 6, 8, 10, 12].filter((r) => !reqRadii.some((q) => Math.abs(q - r) < 0.5));
+  // i percorsi reali usano molte curve strette: senza queste non si sfrutta
+  // lo spazio delle aree piccole
+  const stdRadii = [2.5, 3, 4, 5, 6, 8, 10, 12].filter((r) => !reqRadii.some((q) => Math.abs(q - r) < 0.5));
   // i raggi richiesti restano in testa (e pesano di più nelle scelte casuali)
   // i raggi richiesti pesano di più nelle scelte casuali della strategia libera
   const radii = [...reqRadii, ...reqRadii, ...reqRadii, ...stdRadii];
@@ -638,6 +722,42 @@ export function generateCandidates(baseProject, options = {}) {
       repaired: !!fixed.repaired,
       trimmed: !!fixed.trimmed,
     });
+
+  }
+
+  /* Anelli a più passaggi: si usano soltanto se con un giro solo la lunghezza
+     richiesta non si raggiunge. Prima si verifica, poi semmai si ripassa. */
+  const wantLength = gp.targetLength || (isRoller ? ROLLER.totalLengthMin : 0);
+  const inRange = (r) => {
+    const L = r.stats.raceLength || r.stats.totalLength;
+    if (gp.targetLength) return Math.abs(L - gp.targetLength) <= Math.max(5, gp.targetLength * 0.05);
+    if (!isRoller) return true;
+    return L >= ROLLER.totalLengthMin && L <= ROLLER.totalLengthMax;
+  };
+  const singleLapEnough = results.some(inRange);
+  if (gp.closedLoop !== false && wantLength > 0 && !singleLapEnough) {
+    const seeds = results.slice().sort((a, b) => b.score - a.score).slice(0, 8);
+    for (const r of seeds) {
+      const loop = makeLoopVariant(r.project, {
+        width, margin, poly, radii: geoRadii, target: gp.targetLength, rules,
+        runout: rules.finishMin || 0,
+      });
+      if (!loop) continue;
+      const sc2 = scoreCandidate(loop, r);
+      const st2 = sc2.analysis.stats;
+      const passes = st2.extra > 0 ? `giro + ${G.round(st2.extra, 0)} m` : `${st2.laps} giri`;
+      results.push({
+        id: uid('cand'),
+        name: `${r.name} · anello (${passes})`,
+        strategy: r.strategy,
+        closed: true,
+        project: loop,
+        score: sc2.score + (inRange({ stats: st2 }) ? 60 : 0),
+        notes: sc2.notes,
+        stats: st2,
+        checks: sc2.analysis.checks,
+      });
+    }
   }
 
   results.sort((a, b) => b.score - a.score);
