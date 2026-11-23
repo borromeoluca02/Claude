@@ -262,6 +262,7 @@ body.onHome .top .tbtn[data-act="exp.png"],
 body.onHome .top .tbtn[data-act="loc.save"],
 body.onHome .top .tbtn[data-act="undo"],
 body.onHome .top .tbtn[data-act="redo"],
+body.onHome .top .tbtn[data-act="clear.open:all"],
 body.onHome .top .tbtn[data-act="go.home"]{display:none}
 
 .wrail{
@@ -344,3 +345,51 @@ body.onHome .top .tbtn[data-act="go.home"]{display:none}
   .wgrid{grid-template-columns:1fr}
   .presets{grid-template-columns:1fr 1fr}
 }
+
+/* mini-mappa per disegnare il contorno dell'area */
+.mmWrap{margin:10px 0;overflow:auto}
+.minimap{
+  display:block;max-width:100%;height:auto;border:1px solid var(--line);
+  border-radius:10px;background:#fff;cursor:crosshair;touch-action:none
+}
+.mmBg{fill:#fbfdfe}
+.mm10{stroke:#e4ebf2;stroke-width:1}
+.mm50{stroke:#c7d4e0;stroke-width:1}
+.mmPoly{fill:rgba(11,110,168,.09);stroke:var(--accent);stroke-width:2;stroke-linejoin:round}
+.mmVtx{fill:#fff;stroke:var(--accent);stroke-width:2;cursor:grab}
+.mmNum{font-size:9px;fill:var(--accent);font-weight:700;pointer-events:none}
+.mmHint{font-size:13px;fill:#8fa0b0;pointer-events:none}
+.mmScale{font-size:10px;fill:#8fa0b0;pointer-events:none}
+.mmInfo{font-size:12.5px;color:var(--ink2);margin-right:auto}
+
+/* ------------------------------------------------------- finestre modali */
+.modal{
+  position:fixed;inset:0;z-index:60;background:rgba(16,32,48,.45);
+  display:flex;align-items:center;justify-content:center;padding:20px
+}
+.modal[hidden]{display:none !important}
+.mdlBox{
+  background:#fff;border-radius:14px;width:min(520px,100%);max-height:86vh;
+  display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(16,32,48,.3);overflow:hidden
+}
+.mdlHead{display:flex;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+.mdlHead h3{margin:0;font-size:16px;flex:1}
+.mdlX{border:0;background:transparent;font-size:16px;color:var(--ink2);padding:4px 8px;border-radius:7px}
+.mdlX:hover{background:#f2f7fb;color:var(--ink)}
+.mdlBody{padding:14px 16px;overflow:auto;flex:1}
+.mdlBody h4{margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink2)}
+.mdlBody h4:first-of-type{margin-top:8px}
+.mdlFoot{
+  display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:12px 16px;border-top:1px solid var(--line);background:#f7fafc
+}
+.clGroup{border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-bottom:8px}
+.clRow{display:flex;align-items:center;gap:9px;padding:8px 11px;font-size:13.5px;cursor:pointer}
+.clRow + .clRow{border-top:1px solid var(--line)}
+.clRow:hover{background:#f7fafc}
+.clRow input{width:16px;height:16px;flex:0 0 auto;accent-color:var(--accent)}
+.clRow span:not(.dim){flex:1}
+.clRow.head{background:#f2f7fb;font-weight:600}
+.clRow.head b{flex:1}
+.clRow.sub{padding-left:30px}
+.btn[disabled]{opacity:.45;pointer-events:none}

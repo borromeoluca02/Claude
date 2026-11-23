@@ -195,7 +195,7 @@ function trackPanel(state) {
       ${btn('el.addStraight', '+ Rettilineo')}
       ${btn('el.addArc', '+ Curva')}
       ${btn('track.closeLoop', 'Chiudi verso la partenza')}
-      ${btn('track.clear', 'Svuota', 'danger')}
+      ${btn('clear.open:track', 'Svuota…', 'danger')}
     </div>
     <p class="hint">${state.tool === 'draw'
       ? (!baked.elements.length && !state.drawArmed
@@ -314,7 +314,7 @@ function structPanel(state) {
     <p class="hint">${state.tool && state.tool.startsWith('add:')
       ? 'Tocca la mappa per posizionare la struttura. Tocca di nuovo la voce della libreria per annullare.'
       : 'Scegli un ostacolo e poi tocca la mappa. Dentro ogni sagoma vedi nome e altezza, sui lati le dimensioni. Le quote sono quelle dell\'Allegato 3 (indicative) e restano modificabili.'}</p>
-    <div class="row">${btn('st.auto', 'Piazza automaticamente', 'primary')}${btn('st.clear', 'Rimuovi tutte', 'danger')}</div>
+    <div class="row">${btn('st.auto', 'Piazza automaticamente', 'primary')}${btn('clear.open:structures', 'Rimuovi…', 'danger')}</div>
   </section>
   <section class="grp">
     <h3>Ostacoli sul percorso <span class="dim">${p.structures.length}</span></h3>
@@ -618,6 +618,77 @@ function cloudPanel(state) {
     <textarea id="cfgBox" rows="8" spellcheck="false" placeholder='{ "apiKey": "...", "authDomain": "...", "projectId": "...", "appId": "..." }'>${cfg ? e(JSON.stringify(cfg, null, 2)) : ''}</textarea>
     <div class="row">${btn('cloud.saveCfg', 'Salva configurazione', 'primary')}${btn('cloud.clearCfg', 'Rimuovi', 'danger')}</div>
   </section>`;
+}
+
+/* --------------------------------------------- finestra: svuota il disegno */
+
+export function clearDialogHTML(state) {
+  const sel = state.clearSel || {};
+  const els = state.project.track.elements;
+  const nStraight = els.filter((e) => e.type === 'straight').length;
+  const nArc = els.filter((e) => e.type === 'arc').length;
+
+  // strutture presenti, raggruppate come nel regolamento
+  const byType = new Map();
+  for (const s of state.project.structures) {
+    const key = s.key || 'generica';
+    const it = byType.get(key) || { key, group: s.group || 'altro', name: s.name, n: 0 };
+    it.n++;
+    byType.set(key, it);
+  }
+  const groups = ['gimkane', 'barriere', 'rampe', 'altro'];
+  const struct = groups.map((g) => {
+    const items = [...byType.values()].filter((x) => x.group === g);
+    if (!items.length) return '';
+    const allOn = items.every((x) => sel.types && sel.types[x.key]);
+    return `<div class="clGroup">
+      <label class="clRow head">
+        <input type="checkbox" data-act="clear.group:${g}"${allOn ? ' checked' : ''}>
+        <b>${e(GROUP_LABELS[g] || g)}</b>
+        <span class="dim">${items.reduce((a, x) => a + x.n, 0)}</span>
+      </label>
+      ${items.map((x) => `<label class="clRow sub">
+        <input type="checkbox" data-act="clear.type:${e(x.key)}"${sel.types && sel.types[x.key] ? ' checked' : ''}>
+        <span>${e(x.name)}</span><span class="dim">${x.n}</span>
+      </label>`).join('')}
+    </div>`;
+  }).join('');
+
+  const nSelStruct = [...byType.values()].filter((x) => sel.types && sel.types[x.key]).reduce((a, x) => a + x.n, 0);
+  const nSelEl = (sel.straight ? nStraight : 0) + (sel.arc ? nArc : 0);
+
+  return `<div class="mdlBox">
+    <header class="mdlHead">
+      <h3>Svuota il disegno</h3>
+      <button class="mdlX" data-act="modal.close" title="Chiudi">✕</button>
+    </header>
+    <div class="mdlBody">
+      <p class="hint">È tutto selezionato: togli la spunta a ciò che vuoi <b>mantenere</b>. Si può annullare con Ctrl/⌘ + Z.</p>
+
+      <h4>Percorso</h4>
+      ${els.length ? `<div class="clGroup">
+        <label class="clRow"><input type="checkbox" data-act="clear.el:straight"${sel.straight ? ' checked' : ''}><span>Rettilinei</span><span class="dim">${nStraight}</span></label>
+        <label class="clRow"><input type="checkbox" data-act="clear.el:arc"${sel.arc ? ' checked' : ''}><span>Curve</span><span class="dim">${nArc}</span></label>
+      </div>` : '<p class="hint dim">Nessun tratto disegnato.</p>'}
+
+      <h4>Strutture</h4>
+      ${struct || '<p class="hint dim">Nessuna struttura sul percorso.</p>'}
+
+      <p class="hint">La zona di partenza non viene toccata: si disattiva dalla scheda <b>Partenza</b>.</p>
+    </div>
+    <footer class="mdlFoot">
+      <div class="row tight" style="margin:0">
+        ${btn('clear.all', 'Seleziona tutto', 'mini')}
+        ${btn('clear.none', 'Deseleziona tutto', 'mini')}
+      </div>
+      <div class="row tight" style="margin:0">
+        ${btn('modal.close', 'Annulla')}
+        <button class="btn danger" data-act="clear.apply"${!nSelEl && !nSelStruct ? ' disabled' : ''}>
+          Elimina ${nSelEl + nSelStruct} element${nSelEl + nSelStruct === 1 ? 'o' : 'i'}
+        </button>
+      </div>
+    </footer>
+  </div>`;
 }
 
 /* ------------------------------------------------------------ barra stato */

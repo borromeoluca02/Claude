@@ -10,7 +10,7 @@ import { analyze, validStationRanges, extendTo, bakeTrack, projectPoint, edgePat
 import { generateCandidates, autoPlaceStructures } from './generator.js';
 import { render, fitView, toScreen, fmtM, fmt } from './render.js';
 import { attachInteractions } from './interact.js';
-import { panelHTML, tabsHTML, statusHTML, getPath, setPath } from './ui.js';
+import { panelHTML, tabsHTML, statusHTML, getPath, setPath, clearDialogHTML } from './ui.js';
 import { homeHTML, AREA_PRESETS } from './home.js';
 import * as store from './store.js';
 import { buildPlateSet } from './plate.js';
@@ -26,6 +26,7 @@ const hintBar = $('#hintBar');
 const toastEl = $('#toast');
 const nameInput = $('#prjName');
 const homeEl = $('#home');
+const modalEl = $('#modal');
 const editorEl = $('#editor');
 
 /* ------------------------------------------------------------------ stato */
@@ -46,6 +47,8 @@ const state = {
   candidateIndex: -1,
   ghost: null,
   drawArmed: false,   // nel disegno da zero: la partenza è stata fissata?
+  modal: null,        // finestra aperta (per ora solo 'clear')
+  clearSel: null,     // selezione della finestra di svuotamento
   generating: false,
   user: null,
   firebaseConfig: null,
@@ -127,6 +130,30 @@ function syncToolButtons() {
 
 function reanalyze() { state.analysis = analyze(state.project); }
 
+/* ------------------------------------------------------- finestre modali */
+
+function paintModal() {
+  if (state.modal === 'clear') {
+    modalEl.innerHTML = clearDialogHTML(state);
+    modalEl.hidden = false;
+  } else {
+    modalEl.innerHTML = '';
+    modalEl.hidden = true;
+  }
+}
+function closeModal() { state.modal = null; paintModal(); }
+
+/** selezione iniziale: tutto spuntato, o solo l'ambito richiesto */
+function buildClearSel(scope) {
+  const types = {};
+  for (const s of state.project.structures) types[s.key || 'generica'] = scope !== 'track';
+  return {
+    straight: scope !== 'structures',
+    arc: scope !== 'structures',
+    types,
+  };
+}
+
 /* ------------------------------------------------------ schermata iniziale */
 
 function paintHome() {
@@ -166,7 +193,13 @@ function homeArea() {
   switch (h.shape) {
     case 'trapezoid': return makeArea('trapezoid', { b1: w, b2: Math.max(5, +h.b2 || Math.round(w * 0.7)), h: d });
     case 'triangle': return makeArea('triangle', { base: w, h: d });
-    case 'polygon': return makeArea('polygon', { sides: 5, r: Math.min(w, d) / 2 });
+    case 'draw': {
+      const pts = (h.points || []).map((p) => ({ x: p.x, y: p.y }));
+      if (pts.length < 3) return makeArea('rect', { w, h: d });
+      // il contorno disegnato viene portato all'origine
+      const b = G.polygonBounds(pts);
+      return makeArea('polygon', { points: pts.map((p) => ({ x: G.round(p.x - b.minX, 2), y: G.round(p.y - b.minY, 2) })) });
+    }
     default: return makeArea('rect', { w, h: d });
   }
 }
@@ -175,6 +208,10 @@ function areaLabel() {
   if (h.preset !== 'custom') {
     const p = AREA_PRESETS.find((x) => x.key === h.preset) || AREA_PRESETS[0];
     return `${p.w}×${p.h}`;
+  }
+  if (h.shape === 'draw' && (h.points || []).length >= 3) {
+    const b = G.polygonBounds(h.points);
+    return `${Math.round(b.w)}×${Math.round(b.h)}`;
   }
   return `${Math.round(+h.w || 60)}×${Math.round(+h.h || 30)}`;
 }
@@ -363,6 +400,46 @@ const actions = {
   },
   'tool:none': () => { state.tool = null; state.mode = 'select'; state.ghost = null; paintPanel(); paint(); },
 
+  /* --- svuotamento selettivo --- */
+  'clear.open': (scope) => {
+    if (state.screen !== 'editor') showEditor(false);
+    state.clearSel = buildClearSel(scope || 'all');
+    state.modal = 'clear';
+    paintModal();
+  },
+  'modal.close': () => closeModal(),
+  'clear.el': (kind) => { state.clearSel[kind] = !state.clearSel[kind]; paintModal(); },
+  'clear.type': (key) => { state.clearSel.types[key] = !state.clearSel.types[key]; paintModal(); },
+  'clear.group': (g) => {
+    const keys = state.project.structures.filter((s) => (s.group || 'altro') === g).map((s) => s.key || 'generica');
+    const allOn = keys.every((k) => state.clearSel.types[k]);
+    keys.forEach((k) => { state.clearSel.types[k] = !allOn; });
+    paintModal();
+  },
+  'clear.all': () => { state.clearSel = buildClearSel('all'); paintModal(); },
+  'clear.none': () => {
+    state.clearSel.straight = false;
+    state.clearSel.arc = false;
+    Object.keys(state.clearSel.types).forEach((k) => { state.clearSel.types[k] = false; });
+    paintModal();
+  },
+  'clear.apply': () => {
+    const sel = state.clearSel || {};
+    const t = state.project.track;
+    const beforeEl = t.elements.length, beforeSt = state.project.structures.length;
+    t.elements = t.elements.filter((el) => !(el.type === 'straight' ? sel.straight : sel.arc));
+    state.project.structures = state.project.structures.filter((s) => !(sel.types && sel.types[s.key || 'generica']));
+    if (!t.elements.length) { t.laps = 1; t.extra = 0; t.closed = false; state.drawArmed = false; }
+    state.selection = null;
+    state.ghost = null;
+    closeModal();
+    commit();
+    const nEl = beforeEl - t.elements.length, nSt = beforeSt - state.project.structures.length;
+    toast(nEl || nSt
+      ? `Eliminati ${nEl ? `${nEl} tratti` : ''}${nEl && nSt ? ' e ' : ''}${nSt ? `${nSt} ostacoli` : ''}`
+      : 'Niente da eliminare');
+  },
+
   /* --- schermata iniziale --- */
   'go.home': () => showHome(),
   'home.disc': (k) => { state.home.discipline = k === 'skate' ? 'skate' : 'roller'; paintHome(); },
@@ -370,6 +447,12 @@ const actions = {
   'home.scroll': (which) => {
     const el = document.getElementById(which === 'mine' ? 'wmine' : 'wnew');
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+  'home.undoVtx': () => { (state.home.points = state.home.points || []).pop(); paintHome(); },
+  'home.clearVtx': () => { state.home.points = []; paintHome(); },
+  'home.vtxPreset': (kind) => {
+    if (kind === 'rect') state.home.points = [{ x: 30, y: 25 }, { x: 110, y: 25 }, { x: 110, y: 70 }, { x: 30, y: 70 }];
+    paintHome();
   },
   'home.create': () => startNew(false),
   'home.createFull': () => startNew(true),
@@ -569,7 +652,7 @@ const actions = {
   },
   'track.laps': (n) => { state.project.track.laps = G.clamp(Math.round(+n || 1), 1, 2); commit(); },
   'track.openLoop': () => { state.project.track.laps = 1; state.project.track.extra = 0; commit(); toast('Tornato a un giro solo'); },
-  'track.clear': () => {
+  'track.clearAll': () => {
     state.project.track.elements = [];
     state.project.track.laps = 1;
     state.project.track.extra = 0;
@@ -615,12 +698,7 @@ const actions = {
     commit();
     toast(n ? `${n} strutture posizionate` : 'Nessun tratto libero abbastanza lungo');
   },
-  'st.clear': () => {
-    if (!state.project.structures.length) return;
-    if (!confirm('Rimuovere tutte le strutture?')) return;
-    state.project.structures = [];
-    commit();
-  },
+  'st.clear': () => actions['clear.open']('structures'),
 
   /* --- generazione --- */
   'gen.addReq': () => {
@@ -868,6 +946,9 @@ function clearGhost() { if (state.ghost) { state.ghost = null; paint(); } }
 
 /** crea un progetto nuovo con l'area scelta; `withTrack` dà un tracciato di base */
 function startNew(withTrack) {
+  if (state.home.preset === 'custom' && state.home.shape === 'draw' && (state.home.points || []).length < 3) {
+    return toast('Disegna almeno 3 vertici del contorno', true);
+  }
   const area = homeArea();
   const b = G.polygonBounds(area.points);
   const p = createProject({
@@ -928,6 +1009,7 @@ document.addEventListener('change', (ev) => {
 
 document.addEventListener('keydown', (ev) => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName);
+  if (ev.key === 'Escape' && state.modal) { closeModal(); return; }
   if (ev.key === 'Escape') { state.tool = null; state.mode = 'select'; state.selection = null; state.ghost = null; paintPanel(); paint(); return; }
   if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z') {
     ev.preventDefault();
@@ -943,6 +1025,47 @@ document.addEventListener('keydown', (ev) => {
     state.selection = null;
   }
 });
+
+/* ------------------------------------------------------- mini-mappa area */
+
+(function initMinimap() {
+  let dragIdx = -1;
+  const toWorldMM = (svg, ev) => {
+    const r = svg.getBoundingClientRect();
+    const sc = +svg.dataset.scale, ox = +svg.dataset.ox, oy = +svg.dataset.oy;
+    // le coordinate del riquadro sono in unità viewBox: va riportata la scala
+    const vb = svg.viewBox.baseVal;
+    const kx = vb.width / r.width, ky = vb.height / r.height;
+    const px = (ev.clientX - r.left) * kx, py = (ev.clientY - r.top) * ky;
+    return {
+      x: G.clamp(Math.round((px - ox) / sc), 0, 150),
+      y: G.clamp(Math.round((vb.height - oy - py) / sc), 0, 100),
+    };
+  };
+  homeEl.addEventListener('pointerdown', (ev) => {
+    const svg = ev.target.closest && ev.target.closest('#minimap');
+    if (!svg) return;
+    const vtx = ev.target.closest('[data-mmvtx]');
+    state.home.points = state.home.points || [];
+    if (vtx) {
+      dragIdx = +vtx.getAttribute('data-mmvtx');
+      svg.setPointerCapture(ev.pointerId);
+      return;
+    }
+    state.home.points.push(toWorldMM(svg, ev));
+    paintHome();
+  });
+  homeEl.addEventListener('pointermove', (ev) => {
+    if (dragIdx < 0) return;
+    const svg = document.getElementById('minimap');
+    if (!svg) return;
+    state.home.points[dragIdx] = toWorldMM(svg, ev);
+    paintHome();
+  });
+  const endMM = () => { dragIdx = -1; };
+  homeEl.addEventListener('pointerup', endMM);
+  homeEl.addEventListener('pointercancel', endMM);
+})();
 
 /* ------------------------------------------------------------- pannello */
 
@@ -1079,6 +1202,7 @@ function boot() {
   window.__repaint = () => { paint(); paintPanel(); paintStatus(); };
   window.__editor = (fit = true) => showEditor(fit);
   window.__home = () => showHome();
+  modalEl.addEventListener('click', (ev) => { if (ev.target === modalEl) closeModal(); });
 }
 
 boot();

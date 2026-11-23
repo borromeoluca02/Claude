@@ -25,6 +25,7 @@
   <button class="tbtn" data-act="redo" title="Ripeti (Ctrl+Shift+Z)">↷</button>
   <button class="tbtn" data-act="loc.save" title="Salva">💾</button>
   <button class="tbtn" data-act="exp.png" title="Esporta PNG">🖼</button>
+  <button class="tbtn" data-act="clear.open:all" title="Svuota il disegno">🗑</button>
   <button class="tbtn" data-act="go.home" title="I miei lavori">📂</button>
   <button class="tbtn panelToggle" id="panelToggle" title="Mostra o nascondi il pannello">☰</button>
 </header>
@@ -57,6 +58,8 @@
     <div class="panelBody" id="panelBody"></div>
   </aside>
 </main>
+
+<div class="modal" id="modal" hidden></div>
 
 <script type="module" src="js/app.js"></script>
 </body>

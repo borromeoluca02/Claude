@@ -10,7 +10,10 @@ Firebase (Hosting + Authentication + Firestore) per il salvataggio online.
 ## Cosa sa fare
 
 ### Area di gara
-* Rettangolo, **trapezio**, **triangolo** o poligono con un numero qualsiasi di vertici.
+* Rettangolo, **trapezio**, **triangolo** o poligono con un numero qualsiasi di
+  vertici. Nella schermata iniziale, con «Su misura → Contorno disegnato», il
+  perimetro si traccia a mano su una mini-mappa quadrettata da 10 m: si clicca
+  per aggiungere i vertici e li si trascina per correggerli.
 * Ogni vertice è modificabile a mano (tabella X/Y) o trascinabile sulla mappa
   con il pulsante ◇ **Modifica area**: forme irregolari comprese.
 * Sui lati dell'area compaiono le quote; in alto superficie e perimetro.
@@ -113,6 +116,13 @@ Su aree piccole un percorso da 250 m in un giro solo non ci sta. L'app allora:
 Nella scheda *Genera* l'opzione «Ammetti anelli con un secondo passaggio» decide
 se queste proposte vanno prodotte; nella scheda *Percorso* si regolano a mano
 giri completi e metri del secondo passaggio.
+
+### Svuotare il disegno
+Il cestino nella barra in alto apre una finestra dove si sceglie cosa togliere:
+rettilinei, curve e ogni tipo di ostacolo raggruppato come nel regolamento, con
+il conteggio di quanti ce ne sono. È tutto selezionato e si toglie la spunta a
+ciò che si vuole mantenere, quindi si può cancellare tutto, solo il percorso,
+solo le strutture o anche solo una categoria. Si annulla con Ctrl/⌘ + Z.
 
 ### Verifica di conformità
 La scheda *Verifica* confronta il progetto con il Regolamento Tecnico e elenca
