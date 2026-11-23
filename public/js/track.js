@@ -226,16 +226,32 @@ export function startGateGeometry(project, baked) {
   };
 }
 
-/** rampa di partenza skate cross, trattata come primo ostacolo */
+/**
+ * Rampa di partenza dello skate cross. Sta DIETRO la linea di partenza, come i
+ * box del roller cross: il percorso disegnato comincia davanti alla rampa, non
+ * sotto di essa. Conta come primo ostacolo, con l'uscita sulla progressiva 0.
+ */
 export function startRampGeometry(project, baked) {
   const sr = project.startRamp;
   if (!sr || !sr.enabled || project.discipline !== 'skate') return null;
+  const L = Math.max(0.5, +sr.length || 6);
+  const W = Math.max(0.5, +sr.width || 5);
+  const p0 = baked.startPoint, h0 = baked.startHeading;
+  const d = dirOf(h0), n = leftOf(h0);
+  const center = add(p0, mul(d, -L / 2));
+  const hl = L / 2, hw = W / 2;
+  const corners = [
+    { x: center.x + d.x * hl + n.x * hw, y: center.y + d.y * hl + n.y * hw },
+    { x: center.x + d.x * hl - n.x * hw, y: center.y + d.y * hl - n.y * hw },
+    { x: center.x - d.x * hl - n.x * hw, y: center.y - d.y * hl - n.y * hw },
+    { x: center.x - d.x * hl + n.x * hw, y: center.y - d.y * hl + n.y * hw },
+  ];
   const st = {
     id: '__startramp', key: 'rampa', name: sr.name || 'Rampa di partenza',
-    height: sr.height, length: sr.length, width: sr.width,
-    mode: 'path', station: sr.length / 2, side: 0, rotation: 0,
+    height: sr.height, length: L, width: W,
+    mode: 'path', station: 0, side: 0, rotation: 0,
   };
-  return { struct: st, ...footprint(st, baked), sStart: 0, sEnd: sr.length };
+  return { struct: st, corners, frame: { center, heading: h0, station: 0, laneWidth: W }, sStart: 0, sEnd: 0 };
 }
 
 /* ------------------------------------------------------------ validazione */
@@ -249,7 +265,8 @@ export function collectObstacles(project, baked) {
   if (gate) {
     out.push({ kind: 'start', id: '__gate', label: 'Griglia di partenza', sStart: 0, sEnd: gate.obstacleEnd, fixed: true });
   } else if (ramp) {
-    out.push({ kind: 'start', id: '__startramp', label: ramp.struct.name, sStart: 0, sEnd: ramp.sEnd, fixed: true });
+    // la rampa è dietro la linea: la gara comincia alla progressiva 0
+    out.push({ kind: 'start', id: '__startramp', label: ramp.struct.name, sStart: 0, sEnd: 0, fixed: true });
   }
 
   for (const el of baked.elements) {
@@ -712,8 +729,11 @@ export function chainFromPlan(plan, width) {
  * È la base dello strumento "disegna percorso": si tocca dove si vuole andare.
  */
 export function extendTo(baked, P, R = 8, width = 5) {
-  // R è il raggio interno: la geometria lavora su quello dell'asse
-  const rAxis = Math.max(0.5, R + width / 2);
+  // R è il raggio interno: la geometria lavora su quello dell'asse.
+  // L'asse non può stare sotto mezza corsia, altrimenti il bordo interno si
+  // rovescia e il tracciato si spezza.
+  const minAxis = width / 2 + 0.25;
+  const rAxis = Math.max(minAxis, R + width / 2);
   const S = baked.elements.length ? baked.endPoint : baked.startPoint;
   const h = baked.elements.length ? baked.endHeading : baked.startHeading;
   const v = sub(P, S);
@@ -733,12 +753,12 @@ export function extendTo(baked, P, R = 8, width = 5) {
   let d = G.dist(P, C);
   // il punto è dentro il cerchio di volta: stringi il raggio
   if (d < r * 1.02) {
-    r = Math.max(0.6, G.len(v) / 2.4);
+    r = Math.max(minAxis, G.len(v) / 2.4);
     C = add(S, mul(n, sgn * r));
     d = G.dist(P, C);
     if (d < r * 1.02) {
       // ripiegamento su posto: arco secco di 150°
-      return [mk('arc', { radius: G.round(Math.max(0, r - width / 2), 2), angle: 150, dir: dirSide })];
+      return [mk('arc', { radius: G.round(r - width / 2, 2), angle: 150, dir: dirSide })];
     }
   }
   const tanLen = Math.sqrt(Math.max(0, d * d - r * r));
@@ -750,7 +770,7 @@ export function extendTo(baked, P, R = 8, width = 5) {
   while (sweep < 0) sweep += 2 * Math.PI;
   while (sweep > 2 * Math.PI) sweep -= 2 * Math.PI;
   const angle = G.clamp(sweep * G.RAD, 0.5, 350);
-  const els = [mk('arc', { radius: G.round(Math.max(0, r - width / 2), 2), angle: G.round(angle, 1), dir: dirSide })];
+  const els = [mk('arc', { radius: G.round(r - width / 2, 2), angle: G.round(angle, 1), dir: dirSide })];
   if (tanLen > 0.3) els.push(mk('straight', { length: G.round(tanLen, 2) }));
   return els;
 }
@@ -814,7 +834,7 @@ export function dubinsElements(sol, width) {
   const els = [];
   const degT = sol.t * G.RAD, degQ = sol.q * G.RAD;
   // sol.radius è il raggio dell'asse: si riporta a raggio interno
-  const rIn = G.round(Math.max(0, sol.radius - width / 2), 2);
+  const rIn = G.round(Math.max(0.1, sol.radius - width / 2), 2);
   if (degT > 0.3) els.push(mk('arc', { radius: rIn, angle: G.round(degT, 1), dir: sol.dirs[0] }));
   const straight = sol.p * sol.radius;
   if (straight > 0.3) els.push(mk('straight', { length: G.round(straight, 2) }));
@@ -829,7 +849,7 @@ export function dubinsElements(sol, width) {
  */
 export function closeToStartOptions(baked, width, radii = [3, 4, 5, 6, 8, 10], runout = 0) {
   // i raggi richiesti sono interni: la geometria usa quelli dell'asse
-  const axisRadii = radii.map((r) => Math.max(0.5, r + width / 2));
+  const axisRadii = radii.map((r) => Math.max(width / 2 + 0.25, r + width / 2));
   const from = { x: baked.endPoint.x, y: baked.endPoint.y, heading: baked.endHeading };
   // con `runout` il raccordo punta a un punto arretrato rispetto alla partenza,
   // così l'anello si chiude con un rettilineo davanti alla linea d'arrivo
