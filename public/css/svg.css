@@ -1,6 +1,20 @@
 /* svg.css — stili del disegno. Vengono incorporati anche negli export
    SVG/PNG, quindi qui dentro va solo ciò che serve al disegno. */
 svg#canvas, svg.thumb { display: block; }
+
+/* Solo le sagome e le maniglie ricevono i clic: testi, quote e decorazioni
+   lasciano passare il puntatore, altrimenti trascinando il nome di una
+   struttura si finiva per spostare la vista invece della struttura. */
+svg#canvas text,
+svg#canvas .totalBg,
+svg#canvas .arrow,
+svg#canvas .widthTick,
+svg#canvas .laneLine,
+svg#canvas .axis,
+svg#canvas .finish,
+svg#canvas .grid,
+svg#canvas .scaleBar,
+svg#canvas .ghost { pointer-events: none; }
 .grid line.g1 { stroke: #dfe6ee; stroke-width: 1; }
 .grid line.g5 { stroke: #c3cfdc; stroke-width: 1; }
 
@@ -72,3 +86,19 @@ svg.thumb .edge { stroke-width: 1.2; }
 svg.thumb .axis { stroke-width: .7; }
 svg.thumb .struct { stroke-width: 1; }
 svg.thumb .startBox { stroke-width: .8; }
+
+/* anteprima del tratto in disegno */
+.ghost .ghostLane { fill: rgba(31,122,63,.12); stroke: none; }
+.ghost.bad .ghostLane { fill: rgba(209,43,43,.14); }
+.ghost.warn .ghostLane { fill: rgba(201,122,5,.14); }
+.ghost .ghostEdge { fill: none; stroke: #1f7a3f; stroke-width: 2; stroke-dasharray: 8 5; }
+.ghost.bad .ghostEdge { stroke: #d12b2b; }
+.ghost.warn .ghostEdge { stroke: #c97a05; }
+.ghost .ghostAxis { fill: none; stroke: #2b3a4a; stroke-width: 1; stroke-dasharray: 3 4; opacity: .7; }
+.ghostBg { fill: #fff; stroke: #1f7a3f; stroke-width: 1.6; opacity: .97; }
+.ghostBg.bad { stroke: #d12b2b; }
+.ghostBg.warn { stroke: #c97a05; }
+.ghostLbl { fill: #16202c; font-size: 12px; stroke-width: 0; }
+.ghostLbl.b { font-weight: 800; }
+.ghostLbl.sub { fill: #51606e; font-size: 10.5px; }
+.ghostLbl.bad { fill: #d12b2b; font-size: 10px; font-weight: 600; }

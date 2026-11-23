@@ -197,8 +197,8 @@ function trackPanel(state) {
       ${btn('track.clear', 'Svuota', 'danger')}
     </div>
     <p class="hint">${state.tool === 'draw'
-      ? 'Tocca la mappa dove vuoi che passi il percorso: viene aggiunta una curva di raccordo (raggio predefinito) più il rettilineo. Tocca di nuovo il pulsante per uscire.'
-      : 'Trascina i pallini bianchi per allungare i rettilinei; sul pallino di una curva selezionata controlli insieme raggio e angolo.'}</p>
+      ? 'Muovi il puntatore sulla mappa: vedi in tempo reale il tratto che stai per aggiungere, con la sua lunghezza e lo sviluppo totale. Clicca per fissarlo. Se le distanze o le misure non tornano il tratto resta verde o diventa rosso, ma il clic vale comunque. Esc per uscire.'
+      : 'Trascina i pallini bianchi per allungare i rettilinei; sul pallino di una curva selezionata controlli insieme raggio e angolo. Le strutture si trascinano direttamente, anche prendendole dal nome.'}</p>
     <div class="flds">${num('Raggio predefinito', 'ui.drawRadius', state.drawRadius, { step: 0.5, min: 0.5 })}</div>
   </section>
   <section class="grp">
@@ -387,14 +387,15 @@ function autoPanel(state) {
   return `
   <section class="grp">
     <h3>Parametri</h3>
-    <p class="hint">I campi vuoti non sono vincolanti: vengono usati solo i parametri che compili.</p>
+    <p class="hint">I campi vuoti non sono vincolanti: vengono usati solo i parametri che compili.
+    <br><b>Varianti da proporre</b> è quante proposte diverse vuoi vedere in fondo alla scheda: ne calcola molte e ti mostra le migliori, da confrontare e scegliere.</p>
     <div class="flds">
       ${num('Larghezza percorso', 'genParams.width', gp.width, { step: 0.25, min: 0.5 })}
       ${num('Lunghezza totale', 'genParams.targetLength', gp.targetLength, { step: 10, hint: 'libera' })}
       ${num('Curve minime', 'genParams.minCurves', gp.minCurves, { step: 1, unit: '', hint: 'libere' })}
       ${num('Numero strutture', 'genParams.structureCount', gp.structureCount, { step: 1, unit: '', hint: 'auto' })}
       ${num('Margine dal bordo', 'genParams.margin', gp.margin, { step: 0.25, min: 0 })}
-      ${num('Quante opzioni', 'genParams.seedCount', gp.seedCount, { step: 1, unit: '', min: 1, max: 12 })}
+      ${num('Varianti da proporre', 'genParams.seedCount', gp.seedCount, { step: 1, unit: '', min: 1, max: 12 })}
       ${sel('Schema', 'genParams.strategy', gp.strategy, [['auto', 'Tutti gli schemi'], ['serpentina', 'Serpentina'], ['ovale', 'Ovale'], ['spirale', 'Spirale'], ['organica', 'Libera']])}
     </div>
   </section>

@@ -19,8 +19,12 @@ Firebase (Hosting + Authentication + Firestore) per il salvataggio online.
 * Il tracciato è una catena di **rettilinei** e **curve** con continuità di
   tangente: le curve hanno raggio e angolo propri, il percorso non si spezza mai.
 * Tre modi per costruirlo:
-  1. **✏️ Disegna percorso** — tocchi la mappa dove vuoi passare e l'app
-     inserisce la curva di raccordo (raggio predefinito) più il rettilineo.
+  1. **✏️ Disegna percorso** — muovi il puntatore e vedi in tempo reale il
+     tratto che stai per aggiungere, con lunghezza e sviluppo totale: la corsia
+     si allunga e si accorcia seguendo il mouse, e un clic fissa la misura.
+     Dopo il primo tratto l'app inserisce da sola la curva di raccordo (raggio
+     predefinito) più il rettilineo tangente. Se distanze o misure non tornano
+     l'anteprima diventa rossa e dice perché, ma il clic vale comunque.
   2. **Manuale** — pulsanti *+ Rettilineo* / *+ Curva*, con campi numerici per
      lunghezza, raggio, angolo, senso e larghezza.
   3. **Automatico** — vedi *Generazione*.

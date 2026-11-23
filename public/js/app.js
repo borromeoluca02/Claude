@@ -6,7 +6,7 @@ import {
   DEFAULT_RULES, DEFAULT_START_GATE, DEFAULT_START_RAMP, libraryItem,
 } from './model.js';
 import { rulePreset, categoryInfo, ROLLER } from './regulation.js';
-import { analyze, validStationRanges, extendTo, bakeTrack, projectPoint } from './track.js';
+import { analyze, validStationRanges, extendTo, bakeTrack, projectPoint, edgePaths } from './track.js';
 import { generateCandidates, autoPlaceStructures } from './generator.js';
 import { render, fitView, toScreen, fmtM, fmt } from './render.js';
 import { attachInteractions } from './interact.js';
@@ -41,6 +41,7 @@ const state = {
   drawRadius: 8,
   candidates: [],
   candidateIndex: -1,
+  ghost: null,
   generating: false,
   user: null,
   firebaseConfig: null,
@@ -91,7 +92,9 @@ function paintPanel() {
 function paintStatus() { statusEl.innerHTML = statusHTML(state); }
 function paintHint() {
   let msg = '';
-  if (state.tool === 'draw') msg = '✏️ Tocca la mappa dove vuoi far passare il percorso.';
+  if (state.tool === 'draw') msg = state.project.track.elements.length
+    ? '✏️ Muovi il puntatore: vedi il tratto e la sua lunghezza in tempo reale. Clicca per fissarlo.'
+    : '✏️ Muovi il puntatore dalla partenza: la corsia si allunga e si accorcia. Clicca per fissare la lunghezza.';
   else if (state.tool && state.tool.startsWith('add:')) msg = `Tocca la mappa per posizionare «${libraryItem(state.tool.slice(4)).name}».`;
   else if (state.mode === 'area') msg = '◇ Trascina i vertici per modificare l\'area.';
   if (msg) {
@@ -283,8 +286,8 @@ const actions = {
   'view.zoomOut': () => { state.view.scale = G.clamp(state.view.scale / 1.25, 0.5, 240); paint(); },
   'labels.toggle': () => { state.showLabels = !state.showLabels; paint(); syncToolButtons(); },
   'snap.toggle': () => { state.snap = !state.snap; toast(state.snap ? 'Aggancio 25 cm attivo' : 'Aggancio disattivato'); syncToolButtons(); },
-  'tool:draw': () => { state.tool = state.tool === 'draw' ? null : 'draw'; state.mode = 'select'; paintPanel(); paint(); },
-  'tool:none': () => { state.tool = null; state.mode = 'select'; paintPanel(); paint(); },
+  'tool:draw': () => { state.tool = state.tool === 'draw' ? null : 'draw'; state.mode = 'select'; state.ghost = null; paintPanel(); paint(); },
+  'tool:none': () => { state.tool = null; state.mode = 'select'; state.ghost = null; paintPanel(); paint(); },
 
   /* --- disciplina --- */
   discipline(kind) {
@@ -627,6 +630,80 @@ function runGeneration(seed) {
   }, 30);
 }
 
+/* ------------------------------------------------- disegno con anteprima */
+
+/**
+ * Elementi che porterebbero il percorso fino a `wp`.
+ * Se il tracciato è vuoto, il primo tocco definisce direzione e lunghezza del
+ * rettilineo di partenza; dopo, si aggiunge una curva di raccordo più il
+ * rettilineo tangente.
+ */
+function buildDrawElements(wp) {
+  const p = state.project;
+  const width = p.track.defaultWidth;
+  if (!p.track.elements.length) {
+    const s = { x: p.track.start.x, y: p.track.start.y };
+    const v = G.sub(wp, s);
+    const len = G.len(v);
+    if (len < 0.5) return null;
+    return {
+      heading: G.round(Math.atan2(v.y, v.x) * G.RAD, 1),
+      els: [makeElement('straight', { length: G.round(len, 2), widthStart: width, widthEnd: width })],
+    };
+  }
+  const els = extendTo(state.analysis.baked, wp, state.drawRadius, width);
+  return els.length ? { els } : null;
+}
+
+/** calcola l'anteprima: geometria del tratto e suo stato secondo le regole */
+function computeGhost(wp) {
+  if (!wp) { state.ghost = null; return; }
+  const built = buildDrawElements(wp);
+  if (!built) { state.ghost = null; return; }
+  const clone = JSON.parse(JSON.stringify(state.project));
+  if (built.heading !== undefined) clone.track.start.heading = built.heading;
+  const base = clone.track.elements.length;
+  clone.track.elements.push(...JSON.parse(JSON.stringify(built.els)));
+  let a;
+  try { a = analyze(clone); } catch (e) { state.ghost = null; return; }
+  const first = a.baked.elements[base];
+  if (!first) { state.ghost = null; return; }
+  const from = first.startStation;
+  const keep = (q) => q.s >= from - 1e-6;
+  const { left, right } = edgePaths(a.baked);
+  const rank = { ok: 0, warn: 1, bad: 2 };
+  let level = 'ok';
+  const reasons = [];
+  for (const el of clone.track.elements.slice(base)) {
+    const st = a.status[el.id];
+    if (!st) continue;
+    if (rank[st.level] > rank[level]) level = st.level;
+    for (const r of st.reasons || []) reasons.push(r);
+  }
+  for (const o of a.outside || []) {
+    if (o.to >= from - 1e-6) { level = 'bad'; reasons.push('Il tratto esce dall\'area disponibile'); break; }
+  }
+  state.ghost = {
+    left: left.filter(keep), right: right.filter(keep), samples: a.baked.samples.filter(keep),
+    length: a.baked.totalLength - from, total: a.baked.totalLength,
+    level, reasons: [...new Set(reasons)].slice(0, 2),
+    turn: built.els.find((e) => e.type === 'arc') || null,
+  };
+}
+
+let ghostPending = null, ghostRaf = false;
+function previewTo(wp) {
+  ghostPending = wp;
+  if (ghostRaf) return;
+  ghostRaf = true;
+  requestAnimationFrame(() => {
+    ghostRaf = false;
+    computeGhost(ghostPending);
+    paint();
+  });
+}
+function clearGhost() { if (state.ghost) { state.ghost = null; paint(); } }
+
 /* --------------------------------------------------------- eventi globali */
 
 function handleAct(actRaw, id, target) {
@@ -663,7 +740,7 @@ document.addEventListener('change', (ev) => {
 
 document.addEventListener('keydown', (ev) => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName);
-  if (ev.key === 'Escape') { state.tool = null; state.mode = 'select'; state.selection = null; paintPanel(); paint(); return; }
+  if (ev.key === 'Escape') { state.tool = null; state.mode = 'select'; state.selection = null; state.ghost = null; paintPanel(); paint(); return; }
   if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z') {
     ev.preventDefault();
     ev.shiftKey ? redo() : undo();
@@ -698,11 +775,17 @@ const api = {
     paintPanel(); paint();
   },
   drawTo(wp) {
-    const els = extendTo(state.analysis.baked, wp, state.drawRadius, state.project.track.defaultWidth);
-    if (!els.length) return;
-    state.project.track.elements.push(...els);
+    const built = buildDrawElements(wp);
+    if (!built) return;
+    if (built.heading !== undefined) state.project.track.start.heading = built.heading;
+    state.project.track.elements.push(...built.els);
+    state.ghost = null;
     commit();
+    const last = built.els[built.els.length - 1];
+    const info = state.analysis.status[last.id];
+    if (info && info.level === 'bad') toast(info.reasons[0] || 'Tratto fuori regola', true);
   },
+  previewTo,
   addStructureAt(key, wp) {
     const pr = projectPoint(state.analysis.baked, wp);
     const lib = libraryItem(key);

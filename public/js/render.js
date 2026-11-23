@@ -77,6 +77,7 @@ export function render(state) {
   out.push(corridor(state, S));
   out.push(startZone(state, S));
   out.push(structures(state, S));
+  out.push(ghost(state, S));
   if (showLabels) out.push(trackLabels(state, S, detail));
   out.push(handles(state, S));
   out.push(scaleBar(state));
@@ -357,6 +358,30 @@ function trackLabels(state, S, detail) {
     }
     prevWidth = el.widthEnd;
   });
+  return s + '</g>';
+}
+
+/* anteprima del tratto che si sta disegnando */
+function ghost(state, S) {
+  const g = state.ghost;
+  if (!g || !g.samples || g.samples.length < 2) return '';
+  let s = `<g class="ghost ${g.level}">`;
+  s += `<path class="ghostLane" d="${pathOf(S, [...g.left, ...g.right.slice().reverse()], true)}"/>`;
+  s += `<path class="ghostEdge" d="${pathOf(S, g.left)}"/>`;
+  s += `<path class="ghostEdge" d="${pathOf(S, g.right)}"/>`;
+  s += `<path class="ghostAxis" d="${pathOf(S, g.samples)}"/>`;
+  const end = S(g.samples[g.samples.length - 1]);
+  const bw = 150, bh = g.reasons.length ? 46 : 34;
+  // il riquadro resta dentro la finestra anche col puntatore sul bordo
+  let bx = end.x + 16, by = end.y - bh - 10;
+  if (bx + bw > state.W - 8) bx = end.x - bw - 16;
+  if (bx < 8) bx = 8;
+  if (by < 8) by = end.y + 16;
+  if (by + bh > state.H - 8) by = state.H - bh - 8;
+  s += `<rect class="ghostBg ${g.level}" x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw}" height="${bh}" rx="7"/>`;
+  s += label(bx + 9, by + 15, `+ ${fmtM(g.length, 2)}${g.turn ? ` · curva R${fmt(g.turn.radius, 1)}` : ''}`, 'ghostLbl b');
+  s += label(bx + 9, by + 28, `sviluppo totale ${fmtM(g.total, 2)}`, 'ghostLbl sub');
+  if (g.reasons.length) s += label(bx + 9, by + 40, g.reasons[0].slice(0, 34), `ghostLbl bad`);
   return s + '</g>';
 }
 

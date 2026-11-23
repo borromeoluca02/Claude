@@ -90,8 +90,10 @@ export function attachInteractions(svg, api) {
           return;
         case 'gate':
         case 'startramp':
+          // la zona di partenza è ancorata all'inizio del tracciato:
+          // trascinandola si sposta il punto di partenza, non la vista
           api.select({ kind: 'start', id: 'start' });
-          drag = { kind: 'pan', from: toLocal(e), cx: st.view.cx, cy: st.view.cy };
+          drag = { kind: 'start', orig: { ...st.project.track.start }, from: wp };
           return;
       }
     }
@@ -99,9 +101,12 @@ export function attachInteractions(svg, api) {
   });
 
   svg.addEventListener('pointermove', (e) => {
+    const st = api.state();
+    // l'anteprima del disegno va aggiornata anche senza pulsante premuto,
+    // quindi prima del filtro sui puntatori attivi
+    if (!drag && !pinch && st.tool === 'draw' && api.previewTo) api.previewTo(world(e));
     if (!pointers.has(e.pointerId)) return;
     pointers.set(e.pointerId, toLocal(e));
-    const st = api.state();
     const { W, H } = dims();
 
     if (pinch && pointers.size >= 2) {
@@ -226,6 +231,8 @@ export function attachInteractions(svg, api) {
   svg.addEventListener('pointerup', endPointer);
   svg.addEventListener('pointercancel', endPointer);
   svg.addEventListener('lostpointercapture', endPointer);
+
+  svg.addEventListener('pointerleave', () => { if (api.previewTo) api.previewTo(null); });
 
   svg.addEventListener('wheel', (e) => {
     e.preventDefault();
