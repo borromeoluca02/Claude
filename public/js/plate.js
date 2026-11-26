@@ -6,6 +6,7 @@
 
 import * as G from './geometry.js';
 import { edgePaths, frameAt, footprint, startGateGeometry, startRampGeometry, finishBandCells } from './track.js';
+import { tileLayer } from './basemap.js';
 import { fmt, fmtM, raceSummary } from './render.js';
 import { GROUP_LABELS } from './model.js';
 import { REG_SOURCE } from './regulation.js';
@@ -110,7 +111,7 @@ function poly(pts, cls, close = true) {
 
 function sheetOpen(lay, extraDefs = '') {
   return `<?xml version="1.0" encoding="UTF-8"?>\n` +
-    `<svg xmlns="http://www.w3.org/2000/svg" class="plate" width="${lay.w}mm" height="${lay.h}mm" viewBox="0 0 ${lay.w} ${lay.h}">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="plate" width="${lay.w}mm" height="${lay.h}mm" viewBox="0 0 ${lay.w} ${lay.h}">` +
     `<style>${STYLE}</style>${extraDefs}<rect width="${lay.w}" height="${lay.h}" fill="#fff"/>` +
     R(lay.frame.x, lay.frame.y, lay.frame.w, lay.frame.h, 'frame');
 }
@@ -224,6 +225,24 @@ export function platePlan(project, analysis, opts = {}) {
   let o = sheetOpen(lay);
   o += `<clipPath id="dc"><rect x="${lay.draw.x}" y="${lay.draw.y}" width="${lay.draw.w}" height="${lay.draw.h}"/></clipPath>`;
   o += `<g clip-path="url(#dc)">`;
+
+  // sfondo fotografico, sotto a tutto e dentro il riquadro di disegno
+  const bm = project.basemap;
+  if (bm && bm.on && bm.onPlate) {
+    const view = { scale: 1000 / scale, cx, cy };
+    const L = tileLayer(bm, view, ox * 2, oy * 2, { apiKey: opts.mapsKey, rect: lay.draw, maxTiles: 200, zoomBias: 3 });
+    if (L && L.tiles.length) {
+      // sopra la foto le campiture devono lasciar vedere il terreno
+      o += '<style>svg.plate .area{fill:none} svg.plate .lane{fill:#eaf0f6;fill-opacity:.55}</style>';
+      const a = P({ x: 0, y: 0 });
+      o += `<g opacity="${(bm.opacity || 0.9).toFixed(2)}" transform="rotate(${(-L.rotation).toFixed(3)} ${a.x.toFixed(2)} ${a.y.toFixed(2)})">`;
+      for (const t of L.tiles) {
+        o += `<image href="${t.url.replace(/&/g, '&amp;')}" xlink:href="${t.url.replace(/&/g, '&amp;')}" crossorigin="anonymous" preserveAspectRatio="none"`
+          + ` x="${t.x.toFixed(2)}" y="${t.y.toFixed(2)}" width="${t.w.toFixed(2)}" height="${t.h.toFixed(2)}"/>`;
+      }
+      o += '</g>';
+    }
+  }
 
   // griglia metrica opzionale
   if (opts.grid) {

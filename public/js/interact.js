@@ -52,6 +52,16 @@ export function attachInteractions(svg, api) {
     const hit = pickOf(e);
     const wp = world(e);
 
+    // modalità sfondo: il trascinamento sposta (o ruota) la foto aerea
+    if (st.mode === 'map' && !st.project.basemap.locked) {
+      const bm = st.project.basemap;
+      drag = {
+        kind: (st.mapDrag === 'rotate' || e.shiftKey) ? 'maprot' : 'mappan',
+        from: wp, orig: { lat: bm.lat, lon: bm.lon, rotation: bm.rotation },
+      };
+      return;
+    }
+
     // modalità quota: niente si afferra e niente si modifica; il tocco secco
     // misura, il trascinamento sposta soltanto la vista
     if (st.mode === 'quota') {
@@ -157,6 +167,10 @@ export function attachInteractions(svg, api) {
       api.render();
       return;
     }
+    if (drag.kind === 'mappan' || drag.kind === 'maprot') {
+      api.dragBasemap(drag, wp);
+      return;
+    }
     if (drag.kind === 'vertex') {
       const p = st.project.area.points[drag.index];
       const snap = st.snap ? 0.25 : 0;
@@ -237,7 +251,8 @@ export function attachInteractions(svg, api) {
     const d = drag;
     drag = null;
     if (moved) {
-      if (d.kind !== 'pan') api.commit('modifica');
+      if (d.kind === 'mappan' || d.kind === 'maprot') api.commit('sfondo');
+      else if (d.kind !== 'pan') api.commit('modifica');
       return;
     }
     // tocco senza trascinamento

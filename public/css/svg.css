@@ -119,3 +119,19 @@ svg.thumb .startBox { stroke-width: .8; }
 .ghostLbl.b { font-weight: 800; }
 .ghostLbl.sub { fill: #51606e; font-size: 10.5px; }
 .ghostLbl.bad { fill: #d12b2b; font-size: 10px; font-weight: 600; }
+
+/* sfondo fotografico dall'alto */
+svg#canvas .basemap { pointer-events: none; }
+.basemap image { image-rendering: auto; }
+.grid.overMap line.g1 { opacity: .22; }
+.grid.overMap line.g5 { opacity: .35; }
+.mapCredit { fill: #41505f; font-size: 10px; }
+/* sopra la foto aerea le campiture diventano trasparenti, così si vede
+   lo spazio reale sotto il percorso */
+.areaFill.seeThrough { fill: rgba(255,255,255,.08); }
+.lane.seeThrough { fill: rgba(232,238,245,.55); }
+svg#canvas.hasMap text.lbl {
+  paint-order: stroke; stroke: rgba(255,255,255,.9); stroke-width: 2.8px; stroke-linejoin: round;
+}
+svg#canvas.hasMap text.lbl.totalLbl,
+svg#canvas.hasMap text.lbl.totalSub { stroke: none; }

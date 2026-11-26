@@ -163,6 +163,17 @@ export function createProject(opts = {}) {
       seedCount: 6,
       closedLoop: true,   // ammette anelli da ripetere a giri
     },
+    // sfondo fotografico dall'alto: l'origine (0,0) del disegno sta in
+    // (lat, lon); `rotation` orienta la foto sotto il disegno
+    basemap: {
+      on: false,
+      provider: 'esri',
+      lat: 45.0836, lon: 7.7064,     // Parco Colletta, Torino
+      rotation: 0,
+      opacity: 0.9,
+      locked: false,
+      onPlate: false,
+    },
     plate: {
       sheet: 'A3', orientation: 'landscape', scale: 'auto',
       grid: false, stationStep: 25, schedule: true, compliance: true,
@@ -213,6 +224,18 @@ export function makeElement(type, opts = {}) {
 }
 
 /* Ripulisce / aggiorna un progetto letto da file o da Firestore. */
+function normalizeBasemap(def, raw) {
+  const b = { ...def, ...(raw || {}) };
+  const num = (v, d) => (Number.isFinite(+v) ? +v : d);
+  b.lat = Math.max(-85, Math.min(85, num(b.lat, def.lat)));
+  b.lon = Math.max(-180, Math.min(180, num(b.lon, def.lon)));
+  b.rotation = ((num(b.rotation, 0) % 360) + 360) % 360;
+  b.opacity = Math.max(0.1, Math.min(1, num(b.opacity, 0.9)));
+  b.provider = ['esri', 'google', 'googleroad'].includes(b.provider) ? b.provider : 'esri';
+  b.on = !!b.on; b.locked = !!b.locked; b.onPlate = !!b.onPlate;
+  return b;
+}
+
 export function normalizeProject(raw) {
   const p = createProject({});
   if (!raw || typeof raw !== 'object') return p;
@@ -224,6 +247,7 @@ export function normalizeProject(raw) {
   out.startGate = { ...DEFAULT_START_GATE, ...(raw.startGate || {}) };
   out.startRamp = { ...DEFAULT_START_RAMP, ...(raw.startRamp || {}) };
   out.genParams = { ...p.genParams, ...(raw.genParams || {}) };
+  out.basemap = normalizeBasemap(p.basemap, raw.basemap);
   out.plate = { ...p.plate, ...(raw.plate || {}) };
 
   const a = raw.area || {};

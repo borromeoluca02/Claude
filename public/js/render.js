@@ -4,6 +4,7 @@
 
 import * as G from './geometry.js';
 import { edgePaths, frameAt, footprint, startGateGeometry, startRampGeometry, finishBandCells } from './track.js';
+import { tileLayer } from './basemap.js';
 
 const { leftOf, dirOf, add, mul, sub } = G;
 
@@ -90,6 +91,7 @@ export function render(state) {
   const showLabels = state.showLabels !== false;
   const detail = k > 6;   // sotto questa scala le quote di dettaglio sono illeggibili
 
+  out.push(basemapLayer(state));
   out.push(grid(state, S));
   out.push(area(state, S));
   out.push(corridor(state, S));
@@ -105,6 +107,30 @@ export function render(state) {
 }
 
 /* griglia metrica */
+/* sfondo fotografico: tessere ruotate attorno all'origine del disegno */
+function basemapLayer(state) {
+  const bm = state.project.basemap;
+  if (!bm || !bm.on) return '';
+  const L = tileLayer(bm, state.view, state.W, state.H, { apiKey: state.mapsKey, maxTiles: 300 });
+  if (!L || !L.tiles.length) return '';
+  const a = toScreen(state.view, state.W, state.H, { x: 0, y: 0 });
+  // la rotazione del disegno (y in su) è oraria sullo schermo: segno invertito
+  let s = `<g class="basemap" opacity="${(bm.opacity || 0.9).toFixed(2)}" transform="rotate(${(-L.rotation).toFixed(3)} ${a.x.toFixed(1)} ${a.y.toFixed(1)})">`;
+  for (const t of L.tiles) {
+    s += `<image href="${esc(t.url)}" xlink:href="${esc(t.url)}" crossorigin="anonymous" preserveAspectRatio="none"`
+      + ` x="${t.x.toFixed(2)}" y="${t.y.toFixed(2)}" width="${t.w.toFixed(2)}" height="${t.h.toFixed(2)}"/>`;
+  }
+  return s + '</g>';
+}
+
+/** credito dell'immagine: va mostrato quando lo sfondo è acceso */
+export function basemapCredit(state) {
+  const bm = state.project && state.project.basemap;
+  if (!bm || !bm.on) return '';
+  const L = tileLayer(bm, state.view, state.W, state.H, { apiKey: state.mapsKey, maxTiles: 300 });
+  return L ? L.credit : '';
+}
+
 function grid(state, S) {
   const { view, W, H } = state;
   const k = view.scale;
@@ -114,7 +140,8 @@ function grid(state, S) {
   const x0 = Math.floor(tl.x / step) * step, x1 = Math.ceil(br.x / step) * step;
   const y0 = Math.floor(br.y / step) * step, y1 = Math.ceil(tl.y / step) * step;
   if ((x1 - x0) / step > 400 || (y1 - y0) / step > 400) return '';
-  let s = '<g class="grid">';
+  const onMap = state.project.basemap && state.project.basemap.on;
+  let s = `<g class="grid${onMap ? ' overMap' : ''}">`;
   for (let x = x0; x <= x1; x += step) {
     const a = S({ x, y: y0 }), b = S({ x, y: y1 });
     const major = Math.abs(x % (step * 5)) < 1e-6;
@@ -133,7 +160,8 @@ function area(state, S) {
   const { project, view, mode } = state;
   const pts = project.area.points;
   if (pts.length < 3) return '';
-  let s = `<g class="area"><path class="areaFill" d="${pathOf(S, pts, true)}"/>`;
+  const overMap = state.project.basemap && state.project.basemap.on;
+  let s = `<g class="area"><path class="areaFill${overMap ? ' seeThrough' : ''}" d="${pathOf(S, pts, true)}"/>`;
   // quote dei lati
   if (view.scale > 3) {
     for (let i = 0; i < pts.length; i++) {
@@ -165,7 +193,7 @@ function corridor(state, S) {
   const { left, right } = edgePaths(baked);
   const band = [...left, ...right.slice().reverse()];
   let s = '<g class="corridor">';
-  s += `<path class="lane" data-pick="lane" d="${pathOf(S, band, true)}"/>`;
+  s += `<path class="lane${state.project.basemap && state.project.basemap.on ? ' seeThrough' : ''}" data-pick="lane" d="${pathOf(S, band, true)}"/>`;
 
   // tratti fuori area evidenziati
   for (const run of analysis.outside || []) {
@@ -585,7 +613,18 @@ function scaleBar(state) {
   return `<g class="scaleBar"><line x1="18" y1="${y}" x2="${18 + px}" y2="${y}"/>` +
     `<line x1="18" y1="${y - 5}" x2="18" y2="${y + 5}"/>` +
     `<line x1="${18 + px}" y1="${y - 5}" x2="${18 + px}" y2="${y + 5}"/>` +
-    `<text class="lbl scaleTxt" x="${18 + px / 2}" y="${y - 9}" text-anchor="middle">${fmtM(m, 0)}</text></g>`;
+    `<text class="lbl scaleTxt" x="${18 + px / 2}" y="${y - 9}" text-anchor="middle">${fmtM(m, 0)}</text>` +
+    creditText(state) + '</g>';
+}
+
+/* credito delle immagini: va mostrato finché lo sfondo è acceso */
+function creditText(state) {
+  const bm = state.project.basemap;
+  if (!bm || !bm.on) return '';
+  const L = tileLayer(bm, state.view, state.W, state.H, { apiKey: state.mapsKey, maxTiles: 300 });
+  if (!L || !L.tiles.length) return '';
+  const nord = bm.rotation ? ` · nord ruotato di ${fmt(bm.rotation, 0)}°` : '';
+  return `<text class="lbl mapCredit" x="${state.W - 14}" y="20" text-anchor="end">${esc(L.credit + nord)}</text>`;
 }
 
 /* ------------------------------------------------- miniatura (candidati) */

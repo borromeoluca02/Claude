@@ -5,6 +5,7 @@ import * as G from './geometry.js';
 import { STRUCTURE_LIBRARY, GROUP_LABELS } from './model.js';
 import { ROLLER, SKATE, CATEGORIES, categoryInfo, REG_SOURCE } from './regulation.js';
 import { fmt, fmtM, thumbSVG, raceSummary } from './render.js';
+import { PROVIDERS, provider, worldToLatLon, formatLatLon } from './basemap.js';
 import { buildPlateSet, autoScale, sheetSize, SHEETS, SCALES } from './plate.js';
 
 /* ------------------------------------------------- lettura/scrittura path */
@@ -40,6 +41,12 @@ function sel(labelTxt, bind, value, options) {
   return `<label class="fld"><span>${e(labelTxt)}</span><select data-bind="${bind}">` +
     options.map(([v, t]) => `<option value="${e(v)}"${String(v) === String(value) ? ' selected' : ''}>${e(t)}</option>`).join('') +
     `</select></label>`;
+}
+function rng(labelTxt, bind, value, opts = {}) {
+  const { min = 0, max = 1, step = 0.05, fmtv = (v) => Math.round(v * 100) + '%' } = opts;
+  return `<label class="fld rng"><span>${e(labelTxt)}</span>`
+    + `<input type="range" data-bind="${bind}" value="${value}" min="${min}" max="${max}" step="${step}">`
+    + `<i>${e(fmtv(value))}</i></label>`;
 }
 function chk(labelTxt, bind, value) {
   return `<label class="fld chk"><input type="checkbox" data-bind="${bind}"${value ? ' checked' : ''}><span>${e(labelTxt)}</span></label>`;
@@ -146,6 +153,62 @@ function areaPanel(state) {
       ${btn('area.toggleEdit', state.mode === 'area' ? '✓ Modifica area' : 'Modifica area', state.mode === 'area' ? 'primary' : '')}
       ${btn('area.normalize', 'Porta a origine')}
     </div>
+  </section>
+  ${basemapSection(state)}`;
+}
+
+/* ------------------------------------------------ sfondo satellitare */
+
+export function basemapSection(state) {
+  const bm = state.project.basemap;
+  const prov = provider(bm.provider);
+  const c = worldToLatLon(bm, G.polygonCentroid(state.project.area.points));
+  const needKey = prov.needsKey && !state.mapsKey;
+  return `
+  <section class="grp">
+    <h3>Sfondo satellitare ${bm.on ? `<span class="dim">${bm.locked ? 'fissato' : 'libero'}</span>` : ''}</h3>
+    <div class="row">
+      ${btn('map.toggle', bm.on ? '✓ Sfondo acceso' : 'Accendi lo sfondo', bm.on ? 'primary' : '')}
+      ${bm.on ? btn('map.lock', bm.locked ? '🔒 Fissato' : '🔓 Fissa lo sfondo', bm.locked ? 'primary' : '') : ''}
+    </div>
+    ${bm.on ? `
+    <div class="flds">
+      ${txt('Link di Google Maps o coordinate', 'ui.placeText', state.placeText, { ph: 'incolla qui: https://maps.google.com/… oppure 45.0836, 7.7064' })}
+    </div>
+    <div class="row">
+      ${btn('map.place', 'Porta qui lo sfondo', 'primary')}
+      ${btn('map.here', 'Usa la mia posizione')}
+      ${btn('map.openMaps', 'Apri in Google Maps')}
+    </div>
+    <p class="hint">Su Google Maps trova il campo di gara, fai clic destro sul punto e copia le coordinate (o copia il link dalla barra degli indirizzi) e incollalo qui: lo sfondo si porta al centro dell'area, in scala reale.</p>
+    <div class="flds">
+      ${sel('Immagini', 'basemap.provider', bm.provider, Object.values(PROVIDERS).map((p) => [p.key, p.name]))}
+      ${num('Rotazione', 'basemap.rotation', bm.rotation, { step: 1, unit: '°', min: 0, max: 360 })}
+    </div>
+    <div class="row tight">
+      ${btn('map.rotateBy', '↺ 1°', 'mini', '-1')}
+      ${btn('map.rotateBy', '↺ 15°', 'mini', '-15')}
+      ${btn('map.north', 'Nord in alto', 'mini')}
+      ${btn('map.rotateBy', '15° ↻', 'mini', '15')}
+      ${btn('map.rotateBy', '1° ↻', 'mini', '1')}
+    </div>
+    ${rng('Trasparenza', 'basemap.opacity', bm.opacity, { min: 0.1, max: 1, step: 0.05 })}
+    <div class="row">
+      ${btn('map.move', state.mode === 'map' ? '✓ Sto spostando lo sfondo' : 'Sposta o ruota lo sfondo', state.mode === 'map' ? 'primary' : '', '')}
+      ${state.mode === 'map' ? `<div class="seg mini">
+        <button class="segb${state.mapDrag !== 'rotate' ? ' on' : ''}" data-act="map.drag:move">Sposta</button>
+        <button class="segb${state.mapDrag === 'rotate' ? ' on' : ''}" data-act="map.drag:rotate">Ruota</button>
+      </div>` : ''}
+    </div>
+    ${needKey ? `<p class="hint bad"><b>Serve la tua chiave.</b> Le immagini di Google si pagano a consumo: crea una chiave della <b>Maps Static API</b> nella console Google Cloud e incollala qui sotto. Resta solo su questo browser.</p>` : ''}
+    <div class="flds">
+      ${txt('Chiave Maps Static API (facoltativa)', 'ui.mapsKey', state.mapsKey, { ph: 'AIza…' })}
+    </div>
+    ${state.mapsKey ? `<div class="row">${btn('map.clearKey', 'Togli la chiave da questo browser', 'mini danger')}</div>` : ''}
+    ${chk('Metti lo sfondo anche nella tavola in scala', 'basemap.onPlate', bm.onPlate)}
+    <p class="hint">Centro dell'area: <b>${formatLatLon(c.lat, c.lon, 6)}</b> · ${e(prov.credit)}.
+    Un metro del disegno è un metro sul terreno: il percorso si sovrappone allo spazio reale.</p>
+    ` : '<p class="hint">Accende sotto il disegno la vista dall\'alto, in scala reale: utile per capire quanto spazio c\'è davvero. Si posiziona incollando un link di Google Maps e poi si fissa, così non si sposta più mentre disegni.</p>'}
   </section>`;
 }
 
@@ -536,7 +599,7 @@ function platePanel(state) {
   const wmm = (b.w * 1000) / scale, hmm = (b.h * 1000) / scale;
   let preview = '', pages = 1, fits = true;
   try {
-    const set = buildPlateSet(state.project, state.analysis, pl);
+    const set = buildPlateSet(state.project, state.analysis, { ...pl, mapsKey: state.mapsKey });
     preview = set.pages[0].svg.replace(/^<\?xml[^>]*\?>\s*/, '');
     pages = set.pages.length;
     fits = set.fits;
@@ -703,6 +766,7 @@ const ICO = {
   straight: `<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M2 14h10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M16 3.5v7M12.5 7h7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>`,
   arc: `<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.6 17.4A12 12 0 0 1 11 6.2" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M16 3.5v7M12.5 7h7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>`,
   finish: `<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M3.6 2.2v15.6" fill="none" stroke="currentColor" stroke-width="2"/><g fill="currentColor"><rect x="5.6" y="3" width="4" height="3.4"/><rect x="13.6" y="3" width="4" height="3.4"/><rect x="9.6" y="6.4" width="4" height="3.4"/></g><rect x="5.6" y="3" width="12" height="6.8" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>`,
+  globe: `<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.2" fill="none" stroke="currentColor" stroke-width="1.8"/><ellipse cx="10" cy="10" rx="3.1" ry="7.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 7.6h14M3 12.4h14" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>`,
   quota: `<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M3 10h14"/><path d="M3 5.5v9M17 5.5v9"/><path d="M6 7.5 3.5 10 6 12.5M14 7.5l2.5 2.5L14 12.5"/></g></svg>`,
 };
 
@@ -727,6 +791,8 @@ export function toolbarHTML(state) {
     '<div class="ftSep"></div>',
     toolBtn('fly:add', '📐', 'Opzioni dei tratti del percorso', state.flyout === 'add'),
     toolBtn('area.toggleEdit', '🗺️', 'Modifica i lati dell\'area', state.mode === 'area'),
+    toolBtn('fly:map', ICO.globe, 'Sfondo satellitare sotto il disegno',
+      state.flyout === 'map' || state.mode === 'map' || !!(state.project.basemap && state.project.basemap.on)),
     toolBtn('fly:struct', '🧱', 'Libreria ostacoli', state.flyout === 'struct' || picking),
     toolBtn('fly:gen', '⚙️', 'Genera il percorso', state.flyout === 'gen'),
     '<div class="ftSep"></div>',
@@ -751,6 +817,39 @@ export function flyoutHTML(state) {
         </div>
         <div class="flyRow">${btn('track.applyWidthAll', 'Applica la larghezza a tutti', 'mini')}</div>
         <p class="hint">I tasti <b>+ rettilineo</b> e <b>+ curva</b> sono nella barra a sinistra, subito sotto la matita. Con la matita: primo clic la partenza, poi la corsia si allunga col puntatore e un secondo clic la fissa.</p>
+      </div>
+    </div>`;
+  }
+
+  if (f === 'map') {
+    const bm = state.project.basemap;
+    const prov = provider(bm.provider);
+    const needKey = prov.needsKey && !state.mapsKey;
+    return `<div class="flyBox wide">${head('Sfondo satellitare')}
+      <div class="flyBody">
+        <div class="flyRow">
+          ${btn('map.toggle', bm.on ? '✓ Acceso' : 'Accendi', bm.on ? 'primary' : '')}
+          ${bm.on ? btn('map.lock', bm.locked ? '🔒 Fissato' : '🔓 Fissa', bm.locked ? 'primary' : '') : ''}
+          ${bm.on && !bm.locked ? btn('map.move', state.mode === 'map' ? '✓ Sposto' : 'Sposta/ruota', state.mode === 'map' ? 'primary' : '') : ''}
+        </div>
+        ${bm.on ? `
+        <div class="flds">
+          ${txt('Link di Google Maps o coordinate', 'ui.placeText', state.placeText, { ph: 'https://maps.google.com/… · 45.0836, 7.7064' })}
+        </div>
+        <div class="flyRow">${btn('map.place', 'Porta qui lo sfondo', 'primary')}${btn('map.here', 'La mia posizione')}</div>
+        ${state.mode === 'map' ? `<div class="seg mini">
+          <button class="segb${state.mapDrag !== 'rotate' ? ' on' : ''}" data-act="map.drag:move">Sposta</button>
+          <button class="segb${state.mapDrag === 'rotate' ? ' on' : ''}" data-act="map.drag:rotate">Ruota</button>
+        </div>` : ''}
+        <div class="flds">
+          ${sel('Immagini', 'basemap.provider', bm.provider, Object.values(PROVIDERS).map((p) => [p.key, p.name]))}
+          ${num('Rotazione', 'basemap.rotation', bm.rotation, { step: 1, unit: '°', min: 0, max: 360 })}
+        </div>
+        ${rng('Trasparenza', 'basemap.opacity', bm.opacity, { min: 0.1, max: 1, step: 0.05 })}
+        ${needKey ? `<div class="flds">${txt('Chiave Maps Static API', 'ui.mapsKey', state.mapsKey, { ph: 'AIza…' })}</div>
+          <p class="hint bad">Le immagini di Google si pagano a consumo e richiedono una chiave tua. Senza chiave resta attivo lo sfondo satellitare gratuito.</p>` : ''}
+        <p class="hint">${e(prov.credit)}. Il resto dei comandi è nella scheda <b>Area</b>.</p>
+        ` : '<p class="hint">Mette sotto il disegno la vista dall\'alto, in scala reale. Si posiziona incollando un link di Google Maps e poi si fissa.</p>'}
       </div>
     </div>`;
   }

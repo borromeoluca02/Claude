@@ -6,6 +6,7 @@ const SDK = 'https://www.gstatic.com/firebasejs/10.12.2';
 const LS_CFG = 'rc.firebaseConfig';
 const LS_PRJ = 'rc.projects';
 const LS_CUR = 'rc.current';
+const LS_MAPKEY = 'rc.mapsKey';
 
 let fb = null;          // { app, auth, db, mod }
 let currentUser = null;
@@ -114,6 +115,18 @@ export function listLocal() {
 export function loadLocal(id) { return localAll()[id] || null; }
 export function deleteLocal(id) { const m = localAll(); delete m[id]; localWrite(m); }
 
+/* chiave della Static Maps API: resta su questo browser, non nel progetto,
+   così non viene condivisa insieme ai file salvati */
+export function getMapsKey() {
+  try { return localStorage.getItem(LS_MAPKEY) || ''; } catch (e) { return ''; }
+}
+export function setMapsKey(k) {
+  try {
+    if (k) localStorage.setItem(LS_MAPKEY, String(k).trim());
+    else localStorage.removeItem(LS_MAPKEY);
+  } catch (e) { /* storage non disponibile */ }
+}
+
 export function autosave(project) {
   try { localStorage.setItem(LS_CUR, JSON.stringify(project)); } catch (e) { /* quota */ }
 }
@@ -197,10 +210,36 @@ async function svgCss() {
 }
 
 /** SVG autonomo (con stili incorporati) del disegno corrente */
+/* Le tessere dello sfondo sono immagini remote: dentro un SVG esportato (o
+   ridisegnato su canvas) non verrebbero caricate. Qui si scaricano una volta
+   e si incorporano come dati, così la foto resta anche nei file prodotti. */
+export async function inlineRemoteImages(svgText) {
+  const urls = [...new Set(Array.from(svgText.matchAll(/href="(https?:[^"]+)"/g), (m) => m[1]))];
+  if (!urls.length) return svgText;
+  const pairs = await Promise.all(urls.map(async (u) => {
+    try {
+      const res = await fetch(u.replace(/&amp;/g, '&'), { mode: 'cors', credentials: 'omit' });
+      if (!res.ok) return [u, null];
+      const blob = await res.blob();
+      const data = await new Promise((ok) => {
+        const fr = new FileReader();
+        fr.onload = () => ok(fr.result); fr.onerror = () => ok(null);
+        fr.readAsDataURL(blob);
+      });
+      return [u, data];
+    } catch (e) { return [u, null]; }   // senza rete si esporta senza sfondo
+  }));
+  let out = svgText;
+  for (const [u, data] of pairs) if (data) out = out.split(`href="${u}"`).join(`href="${data}"`);
+  // le tessere rimaste senza dati si tolgono: un riferimento esterno rotto
+  // farebbe fallire tutto il disegno su canvas
+  return out.replace(/<image[^>]*href="https?:[^"]*"[^>]*\/>/g, '');
+}
+
 export async function buildStandaloneSVG(svgEl, W, H, title = 'Percorso') {
   const css = await svgCss();
-  const inner = svgEl.innerHTML;
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
+  const inner = await inlineRemoteImages(svgEl.innerHTML);
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
     `<title>${title}</title><style>${css}\nsvg{background:#fff}</style>` +
     `<rect width="${W}" height="${H}" fill="#ffffff"/>${inner}</svg>`;
 }
@@ -282,6 +321,10 @@ ${pages.map((p) => `<div class="pg">${stripXml(p.svg)}</div>`).join('')}
 </body></html>`;
 }
 
+export async function downloadSVGTextInlined(text, filename) {
+  downloadSVGText(await inlineRemoteImages(text), filename);
+}
+
 export function downloadSVGText(text, filename) {
   downloadBlob(new Blob([text], { type: 'image/svg+xml' }), filename);
 }
@@ -290,7 +333,8 @@ export function downloadSVGText(text, filename) {
 export async function pngFromSheet(svgText, size, dpi = 200) {
   const px = (mm) => Math.round((mm / 25.4) * dpi);
   const W = px(size.w), H = px(size.h);
-  const sized = stripXml(svgText).replace(/width="[\d.]+mm" height="[\d.]+mm"/, `width="${W}" height="${H}"`);
+  const withImgs = await inlineRemoteImages(svgText);
+  const sized = stripXml(withImgs).replace(/width="[\d.]+mm" height="[\d.]+mm"/, `width="${W}" height="${H}"`);
   const url = URL.createObjectURL(new Blob([sized], { type: 'image/svg+xml;charset=utf-8' }));
   try {
     const img = new Image();

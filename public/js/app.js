@@ -13,6 +13,7 @@ import { attachInteractions } from './interact.js';
 import { panelHTML, tabsHTML, statusHTML, getPath, setPath, clearDialogHTML, toolbarHTML, flyoutHTML } from './ui.js';
 import { homeHTML, AREA_PRESETS } from './home.js';
 import * as store from './store.js';
+import { parsePlace, worldToLatLon, latLonToWorld, formatLatLon, mapsLink, provider } from './basemap.js';
 import { buildPlateSet } from './plate.js';
 
 const $ = (s) => document.querySelector(s);
@@ -49,6 +50,9 @@ const state = {
   candidateIndex: -1,
   ghost: null,
   measure: null,      // lettura delle misure in modalità quota: {at, from}
+  mapsKey: '',        // chiave Static Maps, solo su questo browser
+  placeText: '',      // indirizzo/link incollato per posizionare lo sfondo
+  mapDrag: 'move',    // nella modalità sfondo: 'move' | 'rotate'
   drawArmed: false,   // nel disegno da zero: la partenza è stata fissata?
   modal: null,        // finestra aperta (per ora solo 'clear')
   flyout: null,       // menù a comparsa della barra strumenti
@@ -92,6 +96,9 @@ function paint() {
   rafPending = true;
   requestAnimationFrame(() => {
     rafPending = false;
+    // sopra la foto aerea le scritte prendono un alone chiaro, altrimenti
+    // su un prato scuro non si leggono
+    canvas.classList.toggle('hasMap', !!(state.project && state.project.basemap && state.project.basemap.on));
     canvas.innerHTML = render(state);
   });
 }
@@ -114,6 +121,9 @@ function paintHint() {
   else if (state.tool && state.tool.startsWith('add:')) msg = `Tocca la mappa per posizionare «${libraryItem(state.tool.slice(4)).name}».`;
   else if (state.tool === 'finish') msg = '🏁 Clicca sul percorso dove deve stare la linea di arrivo.';
   else if (state.mode === 'quota') msg = '📐 Modalità quota: tutto bloccato. Muovi il puntatore sulla pista per leggere le misure, clicca per fissare il primo punto.';
+  else if (state.mode === 'map') msg = state.mapDrag === 'rotate'
+    ? '🛰 Trascina per ruotare lo sfondo attorno al centro dell\'area. Quando è a posto, fissalo.'
+    : '🛰 Trascina per spostare lo sfondo sotto il disegno (Maiusc per ruotare). Quando è a posto, fissalo.';
   else if (state.mode === 'area') msg = '◇ Trascina i vertici per modificare l\'area.';
   if (msg) {
     hintBar.hidden = false;
@@ -224,6 +234,32 @@ function areaLabel() {
 function live() { reanalyze(); paint(); paintStatus(); }
 
 function paintTools() { syncToolButtons(); }
+
+/* come commit(), ma senza ricostruire pannello e menù: si usa quando la
+   modifica arriva da un campo di testo. Ricostruire il pannello mentre il
+   dito è già premuto su un pulsante lo faceva sparire fra la pressione e il
+   rilascio, e il clic andava perso. */
+function commitQuiet() {
+  reanalyze();
+  pushHist();
+  paint(); paintStatus();
+  scheduleAutosave();
+}
+
+/* ricostruzione del pannello rimandata a fine clic */
+let pointerDownNow = false, panelDirty = false;
+function schedulePanel() {
+  if (pointerDownNow) { panelDirty = true; return; }
+  paintPanel();
+}
+document.addEventListener('pointerdown', () => { pointerDownNow = true; }, true);
+document.addEventListener('pointerup', () => {
+  pointerDownNow = false;
+  if (!panelDirty) return;
+  panelDirty = false;
+  // dopo il clic, non prima: altrimenti si perde di nuovo
+  setTimeout(() => paintPanel(), 0);
+}, true);
 
 /* modifica conclusa: cronologia, pannello, salvataggio automatico */
 function commit() {
@@ -349,10 +385,15 @@ function applyBind(target) {
   if (path.startsWith('ui.')) {
     const key = path.slice(3);
     state[key] = target.type === 'number' ? (+target.value || 0) : target.value;
+    if (key === 'mapsKey') store.setMapsKey(state.mapsKey);
     return true;
   }
   if (target.type === 'checkbox') {
     setPath(state.project, path, target.checked);
+    return true;
+  }
+  if (target.type === 'range') {
+    setPath(state.project, path, parseFloat(target.value));
     return true;
   }
   if (target.type === 'number') {
@@ -557,6 +598,68 @@ const actions = {
     commit();
     toast('Ripristinati i valori del regolamento');
   },
+
+  /* --- sfondo satellitare --- */
+  'map.toggle': () => {
+    const bm = state.project.basemap;
+    bm.on = !bm.on;
+    if (!bm.on && state.mode === 'map') state.mode = 'select';
+    if (bm.on && provider(bm.provider).needsKey && !state.mapsKey) {
+      state.flyout = 'map';
+      toast('Per Google Maps serve la tua chiave API: incollala qui sotto', true);
+    }
+    commit();
+    paintTools();
+  },
+  'map.lock': () => {
+    const bm = state.project.basemap;
+    bm.locked = !bm.locked;
+    if (bm.locked && state.mode === 'map') state.mode = 'select';
+    commit(); paintTools();
+    toast(bm.locked ? 'Sfondo fissato: non si sposta più' : 'Sfondo sbloccato');
+  },
+  'map.move': () => {
+    const bm = state.project.basemap;
+    if (!bm.on) { actions['map.toggle'](); }
+    if (bm.locked) { toast('Lo sfondo è fissato: sbloccalo per spostarlo', true); return; }
+    state.mode = state.mode === 'map' ? 'select' : 'map';
+    if (state.mode === 'map') { state.tool = null; state.ghost = null; state.measure = null; }
+    paintPanel(); paint();
+  },
+  'map.drag': (which) => { state.mapDrag = which === 'rotate' ? 'rotate' : 'move'; paintPanel(); paintTools(); },
+  'map.provider': (key) => {
+    state.project.basemap.provider = key;
+    if (provider(key).needsKey && !state.mapsKey) toast('Incolla la chiave della Static Maps API per vedere le tessere', true);
+    commit(); paintTools();
+  },
+  'map.place': () => {
+    const hit = parsePlace(state.placeText);
+    if (!hit) { toast('Non riconosco il punto: incolla un link di Google Maps o le coordinate', true); return; }
+    const bm = state.project.basemap;
+    if (!bm.on) bm.on = true;
+    placeBasemapAt(hit.lat, hit.lon, areaCenter());
+    commit(); paintPanel(); paintTools();
+    toast(`Sfondo posizionato su ${formatLatLon(hit.lat, hit.lon, 5)}`);
+  },
+  'map.here': () => {
+    if (!navigator.geolocation) { toast('Questo browser non dà la posizione', true); return; }
+    toast('Cerco la posizione…');
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const bm = state.project.basemap;
+      bm.on = true;
+      placeBasemapAt(pos.coords.latitude, pos.coords.longitude, areaCenter());
+      commit(); paintPanel(); paintTools();
+      toast(`Sfondo sulla tua posizione (±${Math.round(pos.coords.accuracy)} m)`);
+    }, () => toast('Posizione non disponibile: incolla il link di Google Maps', true), { enableHighAccuracy: true, timeout: 8000 });
+  },
+  'map.rotateBy': (d) => { rotateBasemapTo((state.project.basemap.rotation || 0) + (+d || 0), areaCenter()); commit(); },
+  'map.north': () => { rotateBasemapTo(0, areaCenter()); commit(); toast('Nord in alto'); },
+  'map.openMaps': () => {
+    const bm = state.project.basemap;
+    const c = worldToLatLon(bm, areaCenter());
+    window.open(mapsLink(c.lat, c.lon, 19), '_blank', 'noopener');
+  },
+  'map.clearKey': () => { state.mapsKey = ''; store.setMapsKey(''); paintPanel(); paintTools(); paint(); },
 
   /* --- area --- */
   'area.shape': (shape) => { regenerateArea(shape); commit(); fit(); },
@@ -769,21 +872,21 @@ const actions = {
   /* --- tavola in scala --- */
   'plate.print': () => {
     try {
-      const set = buildPlateSet(state.project, state.analysis, state.project.plate);
+      const set = buildPlateSet(state.project, state.analysis, { ...state.project.plate, mapsKey: state.mapsKey });
       store.printPages(set.pages, set.size, state.project.name || 'Tavola');
       toast(`${set.pages.length} fogli pronti per la stampa (scala 1:${set.scale})`);
     } catch (err) { toast(err.message, true); }
   },
   'plate.svg': () => {
-    const set = buildPlateSet(state.project, state.analysis, state.project.plate);
+    const set = buildPlateSet(state.project, state.analysis, { ...state.project.plate, mapsKey: state.mapsKey });
     const base = (state.project.name || 'percorso').replace(/[^\w\-]+/g, '_');
     set.pages.forEach((pg, i) => {
-      setTimeout(() => store.downloadSVGText(pg.svg, `${base}_tav${i + 1}_${pg.name}_1-${set.scale}.svg`), i * 350);
+      setTimeout(() => store.downloadSVGTextInlined(pg.svg, `${base}_tav${i + 1}_${pg.name}_1-${set.scale}.svg`), i * 350);
     });
     toast(`${set.pages.length} fogli SVG in scala 1:${set.scale}`);
   },
   'plate.png': async () => {
-    const set = buildPlateSet(state.project, state.analysis, state.project.plate);
+    const set = buildPlateSet(state.project, state.analysis, { ...state.project.plate, mapsKey: state.mapsKey });
     const base = (state.project.name || 'percorso').replace(/[^\w\-]+/g, '_');
     toast('Esporto i fogli…');
     for (let i = 0; i < set.pages.length; i++) {
@@ -1051,9 +1154,12 @@ document.addEventListener('input', (ev) => {
 });
 document.addEventListener('change', (ev) => {
   const t = ev.target;
-  if (t === nameInput) { state.project.name = t.value; commit(); return; }
+  if (t === nameInput) { state.project.name = t.value; commitQuiet(); schedulePanel(); return; }
   if (!t.getAttribute || !t.getAttribute('data-bind')) return;
-  if (applyBind(t)) commit();
+  if (!applyBind(t)) return;
+  if (t.tagName === 'SELECT' || t.type === 'checkbox') { commit(); return; }
+  commitQuiet();
+  schedulePanel();
 });
 
 document.addEventListener('keydown', (ev) => {
@@ -1172,6 +1278,29 @@ function applyPanelWidth(px) {
 
 /* ------------------------------------------------------------------ avvio */
 
+/* ------------------------------------------------- sfondo georeferenziato */
+
+/** sposta lo sfondo di `d` metri nel sistema del disegno */
+function panBasemapBy(d) {
+  const bm = state.project.basemap;
+  const g = worldToLatLon(bm, { x: -d.x, y: -d.y });
+  bm.lat = g.lat; bm.lon = g.lon;
+}
+/** porta il punto reale (lat, lon) sul punto `at` del disegno */
+function placeBasemapAt(lat, lon, at) {
+  const cur = latLonToWorld(state.project.basemap, lat, lon);
+  panBasemapBy({ x: at.x - cur.x, y: at.y - cur.y });
+}
+/** ruota lo sfondo tenendo fermo il punto `pivot` del disegno */
+function rotateBasemapTo(deg, pivot) {
+  const bm = state.project.basemap;
+  const g = worldToLatLon(bm, pivot);
+  bm.rotation = ((deg % 360) + 360) % 360;
+  const now = latLonToWorld(bm, g.lat, g.lon);
+  panBasemapBy({ x: pivot.x - now.x, y: pivot.y - now.y });
+}
+const areaCenter = () => G.polygonCentroid(state.project.area.points);
+
 /* punto misurato sull'asse della pista, con progressiva e larghezza */
 function measurePoint(wp) {
   const baked = state.analysis.baked;
@@ -1213,6 +1342,22 @@ const api = {
     if (info && info.level === 'bad') toast(info.reasons[0] || 'Tratto fuori regola', true);
   },
   previewTo,
+  /* trascinamento dello sfondo: sposta l'ancoraggio o lo ruota */
+  dragBasemap(drag, wp) {
+    const bm = state.project.basemap;
+    bm.lat = drag.orig.lat; bm.lon = drag.orig.lon; bm.rotation = drag.orig.rotation;
+    if (drag.kind === 'maprot') {
+      const pivot = areaCenter();
+      const a0 = Math.atan2(drag.from.y - pivot.y, drag.from.x - pivot.x);
+      const a1 = Math.atan2(wp.y - pivot.y, wp.x - pivot.x);
+      let deg = drag.orig.rotation + (a1 - a0) * G.RAD;
+      if (state.snap) deg = Math.round(deg);
+      rotateBasemapTo(deg, pivot);
+    } else {
+      panBasemapBy({ x: wp.x - drag.from.x, y: wp.y - drag.from.y });
+    }
+    live();
+  },
   /* modalità quota: segue il puntatore sull'asse della pista */
   measureTo(wp) {
     const baked = state.analysis.baked;
@@ -1270,6 +1415,7 @@ function boot() {
   const saved = store.loadAutosave();
   state.project = saved ? normalizeProject(saved) : demoProject();
   state.firebaseConfig = store.getConfig();
+  state.mapsKey = store.getMapsKey();
   state.localProjects = store.listLocal();
   state.resume = saved || null;
   resize();

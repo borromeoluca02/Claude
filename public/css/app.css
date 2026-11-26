@@ -434,3 +434,9 @@ body.onHome .top .tbtn[data-act="go.home"]{display:none}
 
 /* icone vettoriali dentro i tasti della barra sul disegno */
 .ft .ico{width:19px;height:19px;display:block}
+
+/* cursore a scorrimento nei pannelli */
+.fld.rng{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.fld.rng input[type=range]{flex:1;min-width:120px;accent-color:var(--accent)}
+.fld.rng i{font-style:normal;color:var(--dim);font-size:12px;min-width:44px;text-align:right}
+.seg.mini .segb{padding:4px 10px;font-size:12px}
