@@ -624,17 +624,17 @@ function makeLoopVariant(openProject, opt) {
   // solo per il tratto necessario: niente giri interi in più del dovuto, e in
   // ogni caso mai più di due passaggi.
   if (lap >= target * 0.92) {
-    base.track.laps = 1; base.track.extra = 0;
+    base.track.laps = 1; base.track.finishAt = null;
   } else if (lap * 2 >= target) {
-    base.track.laps = 1; base.track.extra = G.round(target - lap, 1);
+    base.track.laps = 2; base.track.finishAt = G.round(target - lap, 1);
   } else {
-    base.track.laps = 2; base.track.extra = 0;
+    base.track.laps = 2; base.track.finishAt = null;
   }
   autoPlaceStructures(base, { count: base.genParams ? base.genParams.structureCount ?? null : null });
 
   // l'arrivo del secondo passaggio non deve cadere subito dopo un ostacolo
-  if (base.track.extra > 0 && rules.finishMin > 0) {
-    base.track.extra = bestFinishStation(base, base.track.extra, rules.finishMin);
+  if (base.track.finishAt > 0 && rules.finishMin > 0) {
+    base.track.finishAt = bestFinishStation(base, base.track.finishAt, rules.finishMin);
   }
   return base;
 }
@@ -660,8 +660,8 @@ function scoreCandidate(project, cand) {
     score -= off * 2.5;
     score += off ? 0 : 150;
     if (off) notes.push(`lunghezza ${G.round(L, 0)} m, fuori dall'intervallo 250–300 m`);
-    if (a.stats.laps > 1) notes.push(`${a.stats.laps} passaggi sul giro da ${G.round(a.stats.totalLength, 0)} m`);
-    if (a.stats.extra > 0) notes.push(`un giro da ${G.round(a.stats.totalLength, 0)} m più ${G.round(a.stats.extra, 0)} m di secondo passaggio`);
+    if (a.stats.laps > 1 && a.stats.finishAt === null) notes.push(`${a.stats.laps} passaggi sul giro da ${G.round(a.stats.totalLength, 0)} m`);
+    if (a.stats.finishAt !== null) notes.push(`un giro da ${G.round(a.stats.totalLength, 0)} m più ${G.round(a.stats.finishAt, 0)} m di secondo passaggio`);
   } else {
     score += L * 0.8;
   }
@@ -808,7 +808,7 @@ export function generateCandidates(baseProject, options = {}) {
       if (!loop) continue;
       const sc2 = scoreCandidate(loop, r);
       const st2 = sc2.analysis.stats;
-      const passes = st2.extra > 0 ? `giro + ${G.round(st2.extra, 0)} m` : `${st2.laps} giri`;
+      const passes = st2.finishAt !== null ? `giro + ${G.round(st2.finishAt, 0)} m` : `${st2.laps} passaggi`;
       results.push({
         id: uid('cand'),
         name: `${r.name} · anello (${passes})`,

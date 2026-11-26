@@ -6,7 +6,7 @@ import {
   DEFAULT_RULES, DEFAULT_START_GATE, DEFAULT_START_RAMP, libraryItem,
 } from './model.js';
 import { rulePreset, categoryInfo, ROLLER } from './regulation.js';
-import { analyze, validStationRanges, extendTo, bakeTrack, projectPoint, edgePaths, closeToStartOptions } from './track.js';
+import { analyze, validStationRanges, extendTo, bakeTrack, projectPoint, frameAt, edgePaths, closeToStartOptions } from './track.js';
 import { generateCandidates, autoPlaceStructures } from './generator.js';
 import { render, fitView, toScreen, fmtM, fmt } from './render.js';
 import { attachInteractions } from './interact.js';
@@ -39,8 +39,8 @@ const state = {
   view: { scale: 10, cx: 0, cy: 0 },
   W: 800, H: 600,
   tab: 'track',
-  mode: 'select',        // 'select' | 'area'
-  tool: null,            // null | 'draw' | 'add:<key>'
+  mode: 'select',        // 'select' | 'area' | 'quota'
+  tool: null,            // null | 'draw' | 'finish' | 'add:<key>'
   selection: null,
   snap: true,
   showLabels: true,
@@ -48,6 +48,7 @@ const state = {
   candidates: [],
   candidateIndex: -1,
   ghost: null,
+  measure: null,      // lettura delle misure in modalità quota: {at, from}
   drawArmed: false,   // nel disegno da zero: la partenza è stata fissata?
   modal: null,        // finestra aperta (per ora solo 'clear')
   flyout: null,       // menù a comparsa della barra strumenti
@@ -111,6 +112,8 @@ function paintHint() {
       : '✏️ Muovi il puntatore: la corsia si allunga in tempo reale. Clicca per fissare la lunghezza.';
   }
   else if (state.tool && state.tool.startsWith('add:')) msg = `Tocca la mappa per posizionare «${libraryItem(state.tool.slice(4)).name}».`;
+  else if (state.tool === 'finish') msg = '🏁 Clicca sul percorso dove deve stare la linea di arrivo.';
+  else if (state.mode === 'quota') msg = '📐 Modalità quota: tutto bloccato. Muovi il puntatore sulla pista per leggere le misure, clicca per fissare il primo punto.';
   else if (state.mode === 'area') msg = '◇ Trascina i vertici per modificare l\'area.';
   if (msg) {
     hintBar.hidden = false;
@@ -332,7 +335,7 @@ function resize() {
 
 /* -------------------------------------------------------------- azioni */
 
-const OPTIONAL_NUM = /^(genParams\.(targetLength|minCurves|structureCount)|area\.params\.(offset|apexX))$/;
+const OPTIONAL_NUM = /^(genParams\.(targetLength|minCurves|structureCount)|area\.params\.(offset|apexX)|track\.finishAt)$/;
 
 function applyBind(target) {
   const path = target.getAttribute('data-bind');
@@ -402,7 +405,27 @@ const actions = {
     if (state.tool === 'draw') state.drawArmed = state.project.track.elements.length > 0;
     paintPanel(); paint();
   },
-  'tool:none': () => { state.tool = null; state.mode = 'select'; state.ghost = null; paintPanel(); paint(); },
+  'tool:none': () => { state.tool = null; state.mode = 'select'; state.ghost = null; state.measure = null; paintPanel(); paint(); },
+  'tool:finish': () => {
+    state.flyout = null;
+    if (state.mode === 'quota') state.mode = 'select';
+    state.tool = state.tool === 'finish' ? null : 'finish';
+    state.ghost = null;
+    state.measure = null;
+    paintPanel(); paint();
+  },
+  /* modalità quota: niente si afferra, niente si modifica, si misura */
+  'mode.quota': () => {
+    const on = state.mode === 'quota';
+    state.flyout = null;
+    state.mode = on ? 'select' : 'quota';
+    state.tool = null;
+    state.ghost = null;
+    state.measure = null;
+    if (!on) state.selection = null;
+    paintPanel(); paint();
+  },
+  'measure.reset': () => { state.measure = state.measure ? { at: state.measure.at, from: null } : null; paint(); },
 
   /* --- barra strumenti sul disegno --- */
   fly: (which) => {
@@ -447,7 +470,7 @@ const actions = {
     const beforeEl = t.elements.length, beforeSt = state.project.structures.length;
     t.elements = t.elements.filter((el) => !(el.type === 'straight' ? sel.straight : sel.arc));
     state.project.structures = state.project.structures.filter((s) => !(sel.types && sel.types[s.key || 'generica']));
-    if (!t.elements.length) { t.laps = 1; t.extra = 0; t.closed = false; state.drawArmed = false; }
+    if (!t.elements.length) { t.laps = 1; t.finishAt = null; t.closed = false; state.drawArmed = false; }
     state.selection = null;
     state.ghost = null;
     closeModal();
@@ -652,17 +675,17 @@ const actions = {
       const target = state.project.genParams.targetLength
         || (ROLLER.totalLengthMin + ROLLER.totalLengthMax) / 2;
       if (st.totalLength * 2 >= target) {
-        state.project.track.laps = 1;
-        state.project.track.extra = G.round(target - st.totalLength, 1);
+        state.project.track.laps = 2;
+        state.project.track.finishAt = G.round(target - st.totalLength, 1);
       } else {
         state.project.track.laps = 2;
-        state.project.track.extra = 0;
+        state.project.track.finishAt = null;
       }
     }
     commit();
     const s = state.analysis.stats;
-    const passes = s.extra > 0
-      ? ` · giro ${fmtM(s.totalLength, 1)} + ${fmtM(s.extra, 1)} = ${fmtM(s.raceLength, 1)}`
+    const passes = s.finishAt !== null
+      ? ` · giro ${fmtM(s.totalLength, 1)} + ${fmtM(s.finishAt, 1)} = ${fmtM(s.raceLength, 1)}`
       : s.laps > 1 ? ` · ${s.laps} passaggi = ${fmtM(s.raceLength, 1)}` : '';
     toast(fallback
       ? `Anello chiuso, ma il raccordo esce dall'area: ${fmtM(chosen.length, 1)}`
@@ -670,11 +693,11 @@ const actions = {
       fallback);
   },
   'track.laps': (n) => { state.project.track.laps = G.clamp(Math.round(+n || 1), 1, 2); commit(); },
-  'track.openLoop': () => { state.project.track.laps = 1; state.project.track.extra = 0; commit(); toast('Tornato a un giro solo'); },
+  'track.openLoop': () => { state.project.track.laps = 1; state.project.track.finishAt = null; commit(); toast('Tornato a un giro solo'); },
   'track.clearAll': () => {
     state.project.track.elements = [];
     state.project.track.laps = 1;
-    state.project.track.extra = 0;
+    state.project.track.finishAt = null;
     state.drawArmed = false;
     state.ghost = null;
     commit();
@@ -1037,7 +1060,7 @@ document.addEventListener('keydown', (ev) => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName);
   if (ev.key === 'Escape' && state.modal) { closeModal(); return; }
   if (ev.key === 'Escape' && state.flyout) { state.flyout = null; paintTools(); return; }
-  if (ev.key === 'Escape') { state.tool = null; state.mode = 'select'; state.selection = null; state.ghost = null; paintPanel(); paint(); return; }
+  if (ev.key === 'Escape') { state.tool = null; state.mode = 'select'; state.selection = null; state.ghost = null; state.measure = null; paintPanel(); paint(); return; }
   if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z') {
     ev.preventDefault();
     ev.shiftKey ? redo() : undo();
@@ -1149,6 +1172,15 @@ function applyPanelWidth(px) {
 
 /* ------------------------------------------------------------------ avvio */
 
+/* punto misurato sull'asse della pista, con progressiva e larghezza */
+function measurePoint(wp) {
+  const baked = state.analysis.baked;
+  const pr = projectPoint(baked, wp);
+  const s = G.clamp(pr.station, 0, baked.totalLength);
+  const f = frameAt(baked, s);
+  return { station: s, point: f.point, width: f.width, side: pr.side };
+}
+
 const api = {
   state: () => state,
   render: paint,
@@ -1181,6 +1213,41 @@ const api = {
     if (info && info.level === 'bad') toast(info.reasons[0] || 'Tratto fuori regola', true);
   },
   previewTo,
+  /* modalità quota: segue il puntatore sull'asse della pista */
+  measureTo(wp) {
+    const baked = state.analysis.baked;
+    // uscendo dal disegno la lettura si spegne, ma il punto fissato resta
+    if (!wp || !baked.elements.length) {
+      if (state.measure && !state.measure.from) { state.measure = null; paint(); }
+      return;
+    }
+    state.measure = { at: measurePoint(wp), from: state.measure ? state.measure.from : null };
+    paint();
+  },
+  /* clic: fissa il primo punto, un secondo clic azzera la misura */
+  measureFix(wp) {
+    const baked = state.analysis.baked;
+    if (!baked.elements.length) return;
+    const at = measurePoint(wp);
+    if (state.measure && state.measure.from) state.measure = { at, from: null };
+    else state.measure = { at, from: at };
+    paint();
+  },
+  /* posa della linea di arrivo sul percorso */
+  setFinishAt(wp) {
+    const baked = state.analysis.baked;
+    if (!baked.elements.length) { toast('Disegna prima il percorso', true); return; }
+    const pr = projectPoint(baked, wp);
+    const t = state.project.track;
+    const s = G.clamp(pr.station, 0.5, baked.totalLength);
+    // a ridosso della fine del tracciato l'arrivo torna "alla fine"
+    t.finishAt = s >= baked.totalLength - 0.5 ? null : G.round(s, 2);
+    commit();
+    const st2 = state.analysis.stats;
+    toast(t.finishAt === null
+      ? `Arrivo alla fine del tracciato · gara ${fmt(st2.raceLength, 1)} m`
+      : `Arrivo alla progressiva ${fmt(t.finishAt, 1)} m${st2.laps > 1 ? ` del ${st2.laps}° passaggio` : ''} · gara ${fmt(st2.raceLength, 1)} m`);
+  },
   addStructureAt(key, wp) {
     const pr = projectPoint(state.analysis.baked, wp);
     const lib = libraryItem(key);

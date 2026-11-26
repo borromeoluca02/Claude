@@ -86,8 +86,10 @@ export function frameAt(baked, s) {
   const width = G.lerp(el.widthStart, el.widthEnd, t);
   if (el.type === 'arc') {
     const a = el.startAngle + el.sweep * t;
+    // sull'arco conta il raggio dell'asse, non quello interno dichiarato
+    const ra = el.axisRadius || (Math.max(0, +el.radius || 0) + width / 2);
     return {
-      point: add(el.center, { x: el.radius * Math.cos(a), y: el.radius * Math.sin(a) }),
+      point: add(el.center, { x: ra * Math.cos(a), y: ra * Math.sin(a) }),
       heading: el.startHeading + el.sweep * t,
       width, element: el, t,
     };
@@ -279,6 +281,33 @@ export function startRampGeometry(project, baked) {
 /* ------------------------------------------------------------ validazione */
 
 /** elenco ordinato degli ostacoli sull'asse (partenza, curve, strutture) */
+/** quadretti della linea di arrivo: seguono la pista, così la banda resta
+ *  dentro la carreggiata anche quando l'arrivo cade dentro una curva */
+export function finishBandCells(baked, station, cell = 0.5) {
+  const fs = G.clamp(station, 0, baked.totalLength);
+  const f0 = frameAt(baked, fs);
+  const cols = Math.max(2, Math.round(f0.width / cell));
+  const cw = f0.width / cols;
+  const at = (s, rel) => {
+    const f = frameAt(baked, G.clamp(s, 0, baked.totalLength));
+    const n = G.leftOf(f.heading);
+    return add(f.point, mul(n, rel * f.width));   // rel: -0.5 .. +0.5
+  };
+  const cells = [];
+  for (let row = 0; row < 2; row++) {
+    const s0 = fs - cw + row * cw, s1 = s0 + cw;
+    for (let c = 0; c < cols; c++) {
+      const r0 = 0.5 - c / cols, r1 = r0 - 1 / cols;
+      cells.push({
+        dark: (row + c) % 2 === 0,
+        corners: [at(s0, r0), at(s0, r1), at(s1, r1), at(s1, r0)],
+      });
+    }
+  }
+  const outline = [at(fs - cw, 0.5), at(fs - cw, -0.5), at(fs + cw, -0.5), at(fs + cw, 0.5)];
+  return { cells, outline, frame: f0, cw };
+}
+
 export function collectObstacles(project, baked) {
   const out = [];
   const gate = startGateGeometry(project, baked);
@@ -333,12 +362,15 @@ export function analyze(project) {
   const closeGap = G.dist(baked.endPoint, baked.startPoint);
   const closeTurn = Math.abs(G.wrapPi(baked.endHeading - baked.startHeading)) * G.RAD;
   const isClosed = baked.elements.length > 1 && closeGap <= 1.2 && closeTurn <= 8;
+  // passaggi sul tracciato: più di uno solo se l'anello è chiuso
   const laps = isClosed ? G.clamp(Math.round(project.track.laps || 1), 1, 2) : 1;
-  // tratto parziale: si ripassa solo una parte del giro, senza concluderlo
-  const extra = isClosed ? G.clamp(+project.track.extra || 0, 0, Math.max(0, baked.totalLength - 0.5)) : 0;
-  const raceLength = baked.totalLength * laps + extra;
-  // progressiva su cui cade la linea di arrivo nell'ultimo passaggio
-  const finishStation = extra > 0 ? extra : baked.totalLength;
+  // la linea di arrivo può stare su una progressiva qualsiasi dell'ultimo
+  // passaggio; se non è stata posata, cade alla fine del tracciato
+  const fa = project.track.finishAt;
+  const finishAt = (fa === null || fa === undefined || !(fa > 0) || fa >= baked.totalLength - 1e-6)
+    ? null : G.clamp(+fa, 0.5, baked.totalLength - 0.5);
+  const finishStation = finishAt === null ? baked.totalLength : finishAt;
+  const raceLength = baked.totalLength * (laps - 1) + finishStation;
 
   const status = {};  // id → { level:'ok'|'bad'|'warn', gap, reasons:[] }
 
@@ -389,7 +421,7 @@ export function analyze(project) {
          Su un anello l'arrivo cade sulla progressiva dell'ultimo passaggio,
          quindi l'ostacolo da controllare è l'ultimo prima di quel punto. */
   if (rules.finishMin > 0) {
-    const fc = finishClearance(baked, obstacles, { isClosed, extra, finishStation });
+    const fc = finishClearance(baked, obstacles, { isClosed, finishStation });
     const target = fc && fc.target;
     const d = fc ? fc.distance : null;
     if (fc && d < rules.finishMin - 1e-6) {
@@ -490,7 +522,7 @@ export function analyze(project) {
   const areaVal = Math.abs(G.polygonArea(areaPts));
   const stats = {
     totalLength: baked.totalLength,
-    isClosed, closeGap, closeTurn, laps, extra, raceLength, finishStation,
+    isClosed, closeGap, closeTurn, laps, finishAt, raceLength, finishStation,
     straightLength: baked.elements.filter((e) => e.type === 'straight').reduce((a, e) => a + e.length, 0),
     curveLength: curves.reduce((a, e) => a + e.length, 0),
     curveCount: curves.length,
@@ -548,9 +580,9 @@ export function analyze(project) {
 export function finishClearance(baked, obstacles, stats) {
   const obs = obstacles.filter((o) => o.kind !== 'start');
   if (!obs.length) return null;
+  const fin = stats && stats.finishStation != null ? stats.finishStation : baked.totalLength;
   const closed = stats && stats.isClosed;
-  const fin = closed && stats.extra > 0 ? stats.finishStation : baked.totalLength;
-  if (!closed) {
+  if (!closed && fin >= baked.totalLength - 1e-6) {
     const last = obs[obs.length - 1];
     return { target: last, distance: baked.totalLength - last.sEnd };
   }
@@ -560,7 +592,7 @@ export function finishClearance(baked, obstacles, stats) {
     return { target, distance: fin - target.sEnd };
   }
   const last = obs[obs.length - 1];
-  return { target: last, distance: (baked.totalLength - last.sEnd) + fin };
+  return { target: last, distance: closed ? (baked.totalLength - last.sEnd) + fin : fin };
 }
 
 export function regulationChecks(project, baked, obstacles, stats) {
@@ -575,8 +607,8 @@ export function regulationChecks(project, baked, obstacles, stats) {
     const race = stats.raceLength;
     add('Lunghezza totale 250–300 m',
       race >= R.totalLengthMin && race <= R.totalLengthMax,
-      stats.laps > 1
-        ? `${n2(race, 1)} m (${n2(baked.totalLength, 1)} m × ${stats.laps} giri)`
+      stats.laps > 1 || stats.finishAt !== null
+        ? `${n2(race, 1)} m (giro ${n2(baked.totalLength, 1)} m × ${stats.laps} passaggi, arrivo a ${n2(stats.finishStation, 1)} m)`
         : `${n2(race, 1)} m`, 'Art. 65.4');
 
     // rettilineo di partenza: primo elemento rettilineo, almeno 20 m

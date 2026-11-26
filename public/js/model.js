@@ -143,8 +143,9 @@ export function createProject(opts = {}) {
       start: { x: b.minX + 10, y: b.minY + 8, heading: 0 },
       defaultWidth: width,
       closed: false,
-      laps: 1,            // giri completi sull'anello (massimo 2)
-      extra: 0,           // metri di giro parziale dopo i giri completi
+      laps: 1,            // passaggi sul tracciato disegnato (massimo 2)
+      finishAt: null,     // progressiva della linea di arrivo nell'ultimo passaggio
+                          // (null = alla fine del tracciato disegnato)
       elements: opts.elements || defaultTrackElements(width),
     },
     structures: opts.structures || [],
@@ -240,8 +241,7 @@ export function normalizeProject(raw) {
     },
     defaultWidth: +(t.defaultWidth ?? 5),
     closed: !!t.closed,
-    laps: G.clamp(Math.round(+(t.laps ?? 1) || 1), 1, 2),   // mai più di due giri
-    extra: Math.max(0, +(t.extra ?? 0) || 0),
+    ...migrateLapsFinish(t),
     elements: (Array.isArray(t.elements) ? t.elements : []).map((e) => {
       const w0 = +(e.widthStart ?? t.defaultWidth ?? 5);
       const w1 = +(e.widthEnd ?? w0);
@@ -277,6 +277,24 @@ export function normalizeProject(raw) {
     mode: s.mode === 'free' ? 'free' : 'path',
   }));
   return out;
+}
+
+/**
+ * Passaggi e arrivo. Nelle versioni precedenti si usava `extra` (metri di
+ * secondo passaggio); ora il modello è: `laps` = quanti passaggi si fanno sul
+ * tracciato (al massimo 2) e `finishAt` = su quale progressiva cade l'arrivo
+ * nell'ultimo passaggio. Un progetto vecchio con laps 1 ed extra 40 diventa
+ * quindi laps 2 e finishAt 40.
+ */
+function migrateLapsFinish(t) {
+  let laps = G.clamp(Math.round(+(t.laps ?? 1) || 1), 1, 2);
+  let finishAt = t.finishAt === null || t.finishAt === undefined ? null : Math.max(0, +t.finishAt || 0);
+  const legacyExtra = Math.max(0, +(t.extra ?? 0) || 0);
+  if (finishAt === null && legacyExtra > 0) {
+    finishAt = legacyExtra;
+    laps = Math.min(2, laps + 1);
+  }
+  return { laps, finishAt };
 }
 
 export const cloneProject = (p) => JSON.parse(JSON.stringify(p));

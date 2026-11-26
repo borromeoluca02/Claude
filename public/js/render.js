@@ -3,7 +3,7 @@
    sempre leggibili e non vengono specchiate dall'asse Y rivolto in alto. */
 
 import * as G from './geometry.js';
-import { edgePaths, frameAt, footprint, startGateGeometry, startRampGeometry } from './track.js';
+import { edgePaths, frameAt, footprint, startGateGeometry, startRampGeometry, finishBandCells } from './track.js';
 
 const { leftOf, dirOf, add, mul, sub } = G;
 
@@ -64,11 +64,29 @@ function screenAngle(headingRad) {
 
 /* ---------------------------------------------------------- disegno main */
 
+/* rettangoli già occupati da etichette importanti (partenza, arrivo…):
+   le quote di dettaglio che vi finiscono dentro non si disegnano, così non
+   si sovrappongono. Si azzera a ogni disegno. */
+let reserved = [];
+/** ingombro approssimato di un'etichetta centrata in (x,y) e ruotata di `ang` */
+function labelRect(x, y, text, ang = 0, chw = 6.3, lh = 14) {
+  const w = Math.max(18, String(text).length * chw);
+  const a = ((ang % 180) + 180) % 180;
+  const vertical = a > 45 && a < 135;      // testo quasi verticale: ingombro ruotato
+  const W = vertical ? lh : w, H = vertical ? w : lh;
+  return { x: x - W / 2 - 2, y: y - H / 2 - 2, w: W + 4, h: H + 4 };
+}
+const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+const reserve = (x, y, text, ang = 0) => { reserved.push(labelRect(x, y, text, ang)); };
+const isReserved = (rect) => reserved.some((b) => overlap(rect, b));
+
 export function render(state) {
+  reserved = [];
   const { project, analysis, view, W, H } = state;
   const S = (p) => toScreen(view, W, H, p);
   const k = view.scale;
   const out = [];
+  const quota = state.mode === 'quota';
   const showLabels = state.showLabels !== false;
   const detail = k > 6;   // sotto questa scala le quote di dettaglio sono illeggibili
 
@@ -78,8 +96,10 @@ export function render(state) {
   out.push(startZone(state, S));
   out.push(structures(state, S));
   out.push(ghost(state, S));
-  if (showLabels) out.push(trackLabels(state, S, detail));
-  out.push(handles(state, S));
+  if (showLabels && !quota) out.push(trackLabels(state, S, detail));
+  if (quota) out.push(quotaLabels(state, S));
+  if (!quota) out.push(handles(state, S));
+  out.push(measureOverlay(state, S));
   out.push(scaleBar(state));
   return out.join('');
 }
@@ -166,23 +186,100 @@ function corridor(state, S) {
     s += `<path class="edge ${lvl}${selCls}" data-pick="element" data-id="${el.id}" d="${pathOf(S, r)}"/>`;
   });
 
-  // asse
-  s += `<path class="axis" d="${pathOf(S, baked.samples)}"/>`;
-  // linea d'arrivo: sull'anello con secondo passaggio cade dove finisce la gara
-  if (baked.elements.length) {
-    const sts0 = analysis.stats;
-    const fs = sts0.isClosed && sts0.extra > 0 ? sts0.finishStation : baked.totalLength;
-    const f = frameAt(baked, fs);
-    const n = leftOf(f.heading);
-    const a = S(add(f.point, mul(n, f.width / 2)));
-    const b = S(sub(f.point, mul(n, f.width / 2)));
-    s += `<line class="finish" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"/>`;
-    if (view.scale > 3) {
-      const p = S(add(f.point, mul(dirOf(f.heading), 1.4)));
-      s += label(p.x, p.y, sts0.isClosed && sts0.raceLength > sts0.totalLength + 0.5 ? 'ARRIVO · 2° passaggio' : 'ARRIVO',
-        'finishLbl', screenAngle(f.heading), ' text-anchor="middle"');
-    }
+  // asse: in modalità quota non si disegna
+  if (state.mode !== 'quota') s += `<path class="axis" d="${pathOf(S, baked.samples)}"/>`;
+  // linea d'arrivo, posata dove finisce la gara
+  if (baked.elements.length) s += finishBand(state, S);
+  return s + '</g>';
+}
+
+/** testo dello sviluppo di gara: passaggi interi + la parte dell'ultimo */
+export function raceSummary(s) {
+  if (s.laps > 1) {
+    const whole = s.laps === 2 ? fmtM(s.totalLength, 2) : `${fmtM(s.totalLength, 2)} × ${s.laps - 1}`;
+    return s.finishAt !== null
+      ? `${s.laps} passaggi · ${whole} + ${fmtM(s.finishStation, 2)} = ${fmtM(s.raceLength, 2)}`
+      : `${s.laps} passaggi · ${fmtM(s.totalLength, 2)} × ${s.laps} = ${fmtM(s.raceLength, 2)}`;
   }
+  return s.finishAt !== null
+    ? `Gara ${fmtM(s.raceLength, 2)} · giro ${fmtM(s.totalLength, 2)}`
+    : `Sviluppo asse ${fmtM(s.totalLength, 2)}`;
+}
+
+/* linea di arrivo a scacchi, sulla progressiva dove finisce la gara */
+function finishBand(state, S) {
+  const { analysis, view } = state;
+  const baked = analysis.baked;
+  const sts = analysis.stats;
+  const fs = Math.min(sts.finishStation != null ? sts.finishStation : baked.totalLength, baked.totalLength);
+  const band = finishBandCells(baked, fs);
+  const poly = (pts) => pts.map(S).map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join('') + 'Z';
+  let s = '<g class="finishBand">';
+  for (const c of band.cells) s += `<path class="fq ${c.dark ? 'dark' : 'light'}" d="${poly(c.corners)}"/>`;
+  s += `<path class="finishEdge" d="${poly(band.outline)}"/>`;
+  if (view.scale > 3) {
+    const f = band.frame;
+    const p = S(add(f.point, mul(leftOf(f.heading), -(f.width / 2 + 2.2))));
+    const ftxt = sts.laps > 1 ? `ARRIVO · ${sts.laps}° passaggio` : 'ARRIVO';
+    s += label(p.x, p.y, ftxt, 'finishLbl', screenAngle(f.heading), ' text-anchor="middle"');
+    reserve(p.x, p.y, ftxt, screenAngle(f.heading));
+  }
+  return s + '</g>';
+}
+
+/* quote della modalità quota: solo i raggi delle curve */
+function quotaLabels(state, S) {
+  const { analysis, view } = state;
+  const baked = analysis.baked;
+  if (!baked.elements.length || view.scale < 2.5) return '';
+  let s = '<g class="quotaLbl">';
+  for (const el of baked.elements) {
+    if (el.type !== 'arc') continue;
+    const f = frameAt(baked, (el.startStation + el.endStation) / 2);
+    const nn = leftOf(f.heading);
+    const p = S(add(f.point, mul(nn, f.width / 2 + 1.4)));
+    const lvl = (analysis.status[el.id] && analysis.status[el.id].level) || 'ok';
+    s += label(p.x, p.y, `R ${fmt(el.radius, 2)}`, `elLbl ${lvl}`, screenAngle(f.heading), ' text-anchor="middle"');
+  }
+  return s + '</g>';
+}
+
+/* lettura delle misure in modalità quota */
+function measureOverlay(state, S) {
+  const m = state.measure;
+  if (!m || !m.at) return '';
+  const baked = state.analysis.baked;
+  let s = '<g class="measure">';
+  const here = S(m.at.point);
+  // crocetta sul punto
+  s += `<line class="mCross" x1="${(here.x - 7).toFixed(1)}" y1="${here.y.toFixed(1)}" x2="${(here.x + 7).toFixed(1)}" y2="${here.y.toFixed(1)}"/>`;
+  s += `<line class="mCross" x1="${here.x.toFixed(1)}" y1="${(here.y - 7).toFixed(1)}" x2="${here.x.toFixed(1)}" y2="${(here.y + 7).toFixed(1)}"/>`;
+
+  const rows = [];
+  if (m.from) {
+    const a = Math.min(m.from.station, m.at.station), b = Math.max(m.from.station, m.at.station);
+    const seg = baked.samples.filter((q) => q.s >= a - 1e-6 && q.s <= b + 1e-6);
+    if (seg.length > 1) s += `<path class="mPath" d="${pathOf(S, seg)}"/>`;
+    const p0 = S(m.from.point);
+    s += `<circle class="mDot" cx="${p0.x.toFixed(1)}" cy="${p0.y.toFixed(1)}" r="4"/>`;
+    rows.push(['sull\'asse', fmtM(b - a, 2)]);
+    rows.push(['in linea d\'aria', fmtM(G.dist(m.from.point, m.at.point), 2)]);
+    rows.push(['da', `${fmt(a, 1)} a ${fmt(b, 1)} m`]);
+  } else {
+    rows.push(['progressiva', fmtM(m.at.station, 2)]);
+    rows.push(['corsia', fmtM(m.at.width, 2)]);
+    rows.push(['manca all\'arrivo', fmtM(Math.max(0, (state.analysis.stats.finishStation || baked.totalLength) - m.at.station), 2)]);
+  }
+  const bw = 168, bh = 16 + rows.length * 13;
+  let bx = here.x + 14, by = here.y - bh - 10;
+  if (bx + bw > state.W - 8) bx = here.x - bw - 14;
+  if (by < 8) by = here.y + 14;
+  s += `<rect class="mBox" x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw}" height="${bh}" rx="7"/>`;
+  rows.forEach(([k, v], i) => {
+    s += label(bx + 9, by + 16 + i * 13, k, 'mKey');
+    s += label(bx + bw - 9, by + 16 + i * 13, v, 'mVal', 0, ' text-anchor="end"');
+  });
+  if (!m.from) s += label(bx + 9, by + bh + 11, 'clicca per fissare il primo punto', 'mHint');
   return s + '</g>';
 }
 
@@ -213,10 +310,13 @@ function startZone(state, S) {
         ? `PARTENZA · ${gate.lanes} box ${fmt(gate.depth, 2)} × ${fmt(gate.laneWidth, 2)} m = fronte ${fmtM(gate.totalWidth, 2)}`
         : `PARTENZA · fronte ${fmtM(gate.totalWidth, 2)}`;
       s += label(up.x, up.y, gateTxt, 'startLbl', ang0, ' text-anchor="middle"');
+      reserve(up.x, up.y, gateTxt, ang0);
       const runS = Math.min(gate.runout, baked.totalLength);
       const fr = frameAt(baked, runS / 2);
       const run = S(add(fr.point, mul(leftOf(fr.heading), -(gate.totalWidth / 2 + 1.5))));
-      s += label(run.x, run.y, `corsie guidate ${fmtM(gate.runout, 2)}`, 'startLbl dim', screenAngle(fr.heading), ' text-anchor="middle"');
+      const runTxt = `corsie guidate ${fmtM(gate.runout, 2)}`;
+      s += label(run.x, run.y, runTxt, 'startLbl dim', screenAngle(fr.heading), ' text-anchor="middle"');
+      reserve(run.x, run.y, runTxt, screenAngle(fr.heading));
     }
   }
   const ramp = startRampGeometry(project, baked);
@@ -239,7 +339,7 @@ function structures(state, S) {
     const sel = selection && selection.kind === 'structure' && selection.id === st.id;
     s += `<path class="struct ${info.level}${sel ? ' sel' : ''}" data-pick="structure" data-id="${st.id}" d="${pathOf(S, fp.corners, true)}"/>`;
     // freccia del senso di marcia
-    if (view.scale > 6) {
+    if (view.scale > 6 && state.mode !== 'quota') {
       const c = fp.frame.center, d = dirOf(fp.frame.heading);
       const a1 = S(add(c, mul(d, st.length / 2 - 0.35)));
       const a2 = S(add(c, mul(d, st.length / 2 - 1.1)));
@@ -281,6 +381,7 @@ function wrapWords(txt, maxChars, maxLines = 3) {
 function structureText(state, S, st, fp, info) {
   const { view } = state;
   const k = view.scale;
+  const quota = state.mode === 'quota';
   const c = fp.frame.center;
   const h = fp.frame.heading;
   const d = dirOf(h), n = leftOf(h);
@@ -296,19 +397,21 @@ function structureText(state, S, st, fp, info) {
   const lineAxis = across ? d : n;               // asse su cui separare le righe
   const sep = (across ? st.length : st.width) / 4;
 
-  if (avail > 48 && thick > 26) {
+  if (avail > 48 && thick > 26 && !quota) {
     const p1 = S(add(c, mul(lineAxis, sep)));
     const p2 = S(sub(c, mul(lineAxis, sep)));
     const small = st.name.length * 6.6 > avail;
-    s += label(p1.x, p1.y + 4, fitText(st.name, avail), 'stName' + (small ? ' small' : ''), ang, ' text-anchor="middle"');
+    const nameTxt = fitText(st.name, avail);
+    s += label(p1.x, p1.y + 4, nameTxt, 'stName' + (small ? ' small' : ''), ang, ' text-anchor="middle"');
     s += label(p2.x, p2.y + 4, `h ${fmtM(st.height, 2)}`, 'stH', ang, ' text-anchor="middle"');
-  } else if (avail > 30) {
+    reserve(p1.x, p1.y + 4, nameTxt, ang);
+  } else if (avail > 30 || (quota && avail > 24)) {
     const c0 = S(c);
     s += label(c0.x, c0.y + 3, fitText(st.name, avail), 'stName small', ang, ' text-anchor="middle"');
   }
 
   // quote sui lati: lunghezza lungo il percorso, larghezza in trasversale
-  if (k > 8) {
+  if (k > 8 && !quota) {
     const pL = S(sub(c, mul(n, st.width / 2 + 0.55)));
     s += label(pL.x, pL.y, fmtM(st.length, 2), 'stDim', screenAngle(h), ' text-anchor="middle"');
     const pW = S(sub(c, mul(d, st.length / 2 + 0.55)));
@@ -316,9 +419,11 @@ function structureText(state, S, st, fp, info) {
   }
 
   // distanza dall'ostacolo precedente
-  if (info && info.gap != null && k > 7) {
+  if (info && info.gap != null && k > 7 && !quota) {
     const p = S(add(add(c, mul(d, -(st.length / 2 + 1.6))), mul(n, st.width / 2 + 1.1)));
-    s += label(p.x, p.y, `Δ ${fmtM(info.gap, 2)}`, `gapLbl ${info.level}`, 0, ' text-anchor="middle"');
+    const gTxt = `Δ ${fmtM(info.gap, 2)}`;
+    s += label(p.x, p.y, gTxt, `gapLbl ${info.level}`, 0, ' text-anchor="middle"');
+    reserve(p.x, p.y, gTxt);
   }
   return s;
 }
@@ -341,14 +446,16 @@ function trackLabels(state, S, detail) {
   cx /= baked.samples.length; cy /= baked.samples.length;
   const toward = G.dot(sub({ x: cx, y: cy }, mid.point), n) >= 0 ? 1 : -1;
   const pm = S(add(mid.point, mul(n, toward * (mid.width / 2 + 2.6))));
-  const multi = sts.laps > 1 || sts.extra > 0;
-  const mainTxt = multi
-    ? `Giro ${fmtM(baked.totalLength, 2)}${sts.extra > 0 ? ` + ${fmtM(sts.extra, 0)}` : ` × ${sts.laps}`} = ${fmtM(sts.raceLength, 2)}`
-    : `Sviluppo asse ${fmtM(baked.totalLength, 2)}`;
+  const mainTxt = raceSummary(sts);
   const subTxt = `corsia ${fmtM(sts.minWidth, 2)}–${fmtM(sts.maxWidth, 2)}${sts.isClosed ? ' · anello chiuso' : ''}`;
   const bw = Math.max(152, mainTxt.length * 7.3 + 26, subTxt.length * 5.8 + 26);
   const boxRect = { x: pm.x - bw / 2 - 6, y: pm.y - 22, w: bw + 12, h: 44 };
-  const inBox = (p) => p.x > boxRect.x && p.x < boxRect.x + boxRect.w && p.y > boxRect.y && p.y < boxRect.y + boxRect.h;
+  // una quota si disegna solo se il suo ingombro non tocca il riquadro
+  // dello sviluppo né le etichette già riservate (partenza, arrivo…)
+  const inBox = (p, text = '', ang = 0) => {
+    const rect = labelRect(p.x, p.y, text, ang);
+    return overlap(rect, boxRect) || isReserved(rect);
+  };
 
   if (detail) {
     let prevWidth = null;
@@ -359,11 +466,13 @@ function trackLabels(state, S, detail) {
         const f = frameAt(baked, (el.startStation + el.endStation) / 2);
         const nn = leftOf(f.heading);
         const p = S(add(f.point, mul(nn, f.width / 2 + 1.5)));
-        if (!inBox(p)) {
-          const txt = el.type === 'arc'
-            ? `curva R${fmt(el.radius, 1)} · ${fmt(el.angle, 0)}° · ${fmtM(el.length, 2)}`
-            : `rettilineo ${fmtM(el.length, 2)}`;
+        const txt = el.type === 'arc'
+          ? `curva R${fmt(el.radius, 1)} · ${fmt(el.angle, 0)}° · ${fmtM(el.length, 2)}`
+          : `rettilineo ${fmtM(el.length, 2)}`;
+        const ang = screenAngle(f.heading);
+        if (!inBox(p, txt, ang)) {
           s += label(p.x, p.y, txt, `elLbl ${lvl}`, screenAngle(f.heading), ' text-anchor="middle"');
+          reserve(p.x, p.y, txt, ang);
         }
       }
       // quota di larghezza solo dove la corsia cambia (e all'inizio)
@@ -375,19 +484,29 @@ function trackLabels(state, S, detail) {
         const b = S(sub(f0.point, mul(n0, f0.width / 2)));
         s += `<line class="widthTick" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"/>`;
         const pw = S(sub(f0.point, mul(n0, f0.width / 2 + 1.1)));
-        if (!inBox(pw)) {
-          s += label(pw.x, pw.y, fmtM(f0.width, 2), `wLbl ${f0.width < project.rules.minWidth ? 'bad' : 'ok'}`, screenAngle(f0.heading + Math.PI / 2), ' text-anchor="middle"');
+        const wTxt = fmtM(f0.width, 2), wAng = screenAngle(f0.heading + Math.PI / 2);
+        if (!inBox(pw, wTxt, wAng)) {
+          s += label(pw.x, pw.y, wTxt, `wLbl ${f0.width < project.rules.minWidth ? 'bad' : 'ok'}`, wAng, ' text-anchor="middle"');
+          reserve(pw.x, pw.y, wTxt, wAng);
         }
         if (k > 12) {
           const ps = S(add(f0.point, mul(n0, f0.width / 2 + 1.1)));
-          if (!inBox(ps)) s += label(ps.x, ps.y, `${fmt(el.startStation, 1)} m`, 'stationLbl', screenAngle(f0.heading + Math.PI / 2), ' text-anchor="middle"');
+          const sTxt = `${fmt(el.startStation, 1)} m`, sAng = screenAngle(f0.heading + Math.PI / 2);
+          if (!inBox(ps, sTxt, sAng)) {
+            s += label(ps.x, ps.y, sTxt, 'stationLbl', sAng, ' text-anchor="middle"');
+            reserve(ps.x, ps.y, sTxt, sAng);
+          }
         }
       }
       if (i === baked.elements.length - 1 && Math.abs(el.widthEnd - el.widthStart) > 0.01 && k > 8) {
         const f1 = frameAt(baked, el.endStation);
         const n1 = leftOf(f1.heading);
         const pw = S(sub(f1.point, mul(n1, f1.width / 2 + 1.1)));
-        if (!inBox(pw)) s += label(pw.x, pw.y, fmtM(f1.width, 2), `wLbl ${f1.width < project.rules.minWidth ? 'bad' : 'ok'}`, screenAngle(f1.heading + Math.PI / 2), ' text-anchor="middle"');
+        const wTxt1 = fmtM(f1.width, 2), wAng1 = screenAngle(f1.heading + Math.PI / 2);
+        if (!inBox(pw, wTxt1, wAng1)) {
+          s += label(pw.x, pw.y, wTxt1, `wLbl ${f1.width < project.rules.minWidth ? 'bad' : 'ok'}`, wAng1, ' text-anchor="middle"');
+          reserve(pw.x, pw.y, wTxt1, wAng1);
+        }
       }
       prevWidth = el.widthEnd;
     });

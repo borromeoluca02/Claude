@@ -4,7 +4,7 @@
 import * as G from './geometry.js';
 import { STRUCTURE_LIBRARY, GROUP_LABELS } from './model.js';
 import { ROLLER, SKATE, CATEGORIES, categoryInfo, REG_SOURCE } from './regulation.js';
-import { fmt, fmtM, thumbSVG } from './render.js';
+import { fmt, fmtM, thumbSVG, raceSummary } from './render.js';
 import { buildPlateSet, autoScale, sheetSize, SHEETS, SCALES } from './plate.js';
 
 /* ------------------------------------------------- lettura/scrittura path */
@@ -200,8 +200,6 @@ function trackPanel(state) {
     <h3>Strumenti</h3>
     <div class="row">
       ${btn('tool:draw', state.tool === 'draw' ? '✓ Sto disegnando' : '✏️ Disegna percorso', state.tool === 'draw' ? 'primary' : '')}
-      ${btn('el.addStraight', '+ Rettilineo')}
-      ${btn('el.addArc', '+ Curva')}
       ${btn('track.closeLoop', 'Chiudi verso la partenza')}
       ${btn('clear.open:track', 'Svuota…', 'danger')}
     </div>
@@ -225,15 +223,13 @@ function trackPanel(state) {
       ? `<b class="cOk">Anello chiuso</b>: il percorso rientra in partenza con la stessa direzione, quindi si può ripetere a giri.`
       : `<b>Anello aperto</b>: il percorso finisce lontano dalla partenza${baked.elements.length ? ` (${fmtM(st2.closeGap, 1)}, ${fmt(st2.closeTurn, 0)}° di scarto)` : ''}.`}</p>
     <div class="flds">
-      ${num('Giri completi', 'track.laps', t.laps || 1, { step: 1, unit: '×', min: 1, max: 2 })}
-      ${num('Secondo passaggio', 'track.extra', t.extra || 0, { step: 5, min: 0, hint: 'nessuno' })}
+      ${num('Passaggi sul tracciato', 'track.laps', t.laps || 1, { step: 1, unit: '×', min: 1, max: 2 })}
+      ${num('Arrivo alla progressiva', 'track.finishAt', t.finishAt, { step: 5, min: 0, hint: 'fine del tracciato' })}
       ${num('Raggio interno raccordo', 'ui.drawRadius', state.drawRadius, { step: 0.5, min: 0 })}
     </div>
-    ${st2.isClosed && st2.raceLength > st2.totalLength + 0.5
-      ? `<p class="hint">Sviluppo di gara: <b>${st2.extra > 0
-          ? `${fmtM(st2.totalLength, 2)} + ${fmtM(st2.extra, 2)} = ${fmtM(st2.raceLength, 2)}</b>, con l'arrivo alla progressiva ${fmtM(st2.finishStation, 1)} del secondo passaggio`
-          : `${fmtM(st2.totalLength, 2)} × ${st2.laps} = ${fmtM(st2.raceLength, 2)}</b>`}. Le distanze sono controllate anche a cavallo della partenza.</p>`
-      : '<p class="hint">Utile sulle aree piccole: si chiude l\'anello e si ripassa quanto basta per arrivare alla lunghezza richiesta. <b>Secondo passaggio</b> sono i metri da ripetere dopo il giro completo: non serve concludere un secondo giro intero.</p>'}
+    ${baked.elements.length
+      ? `<p class="hint">Sviluppo di gara: <b>${raceSummary(st2)}</b>${st2.finishAt !== null ? `, con l'arrivo alla progressiva ${fmtM(st2.finishStation, 1)} del ${st2.laps}° passaggio` : ''}. Le distanze sono controllate anche a cavallo della partenza. La linea di arrivo si sposta anche col tasto a bandiera nella barra a sinistra.</p>`
+      : '<p class="hint">Utile sulle aree piccole: si chiude l\'anello e si ripassa quanto basta per arrivare alla lunghezza richiesta. Con <b>2 passaggi</b> e un <b>arrivo</b> a metà non serve concludere il secondo giro.</p>'}
     <div class="row">${btn('track.closeLoop', 'Chiudi l\'anello alla partenza', 'primary')}${st2.raceLength > st2.totalLength + 0.5 ? btn('track.openLoop', 'Torna a un giro solo') : ''}</div>
   </section>
   <section class="grp">
@@ -701,6 +697,15 @@ export function clearDialogHTML(state) {
 
 /* ------------------------------------------- barra strumenti sul disegno */
 
+/* icone vettoriali dei tasti: più chiare di un'emoji per rettilineo,
+   curva, arrivo e quota */
+const ICO = {
+  straight: `<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M2 14h10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M16 3.5v7M12.5 7h7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>`,
+  arc: `<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.6 17.4A12 12 0 0 1 11 6.2" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M16 3.5v7M12.5 7h7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>`,
+  finish: `<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M3.6 2.2v15.6" fill="none" stroke="currentColor" stroke-width="2"/><g fill="currentColor"><rect x="5.6" y="3" width="4" height="3.4"/><rect x="13.6" y="3" width="4" height="3.4"/><rect x="9.6" y="6.4" width="4" height="3.4"/></g><rect x="5.6" y="3" width="12" height="6.8" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>`,
+  quota: `<svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M3 10h14"/><path d="M3 5.5v9M17 5.5v9"/><path d="M6 7.5 3.5 10 6 12.5M14 7.5l2.5 2.5L14 12.5"/></g></svg>`,
+};
+
 const toolBtn = (act, icon, label, on = false, cls = '') =>
   `<button class="ft${on ? ' on' : ''} ${cls}" data-act="${e(act)}" title="${e(label)}" aria-label="${e(label)}">${icon}</button>`;
 
@@ -715,7 +720,12 @@ export function toolbarHTML(state) {
     toolBtn('snap.toggle', '⊞', 'Aggancio alla griglia (25 cm)', !!state.snap),
     '<div class="ftSep"></div>',
     toolBtn('tool:draw', '✏️', 'Disegna il percorso', t === 'draw'),
-    toolBtn('fly:add', '📐', 'Aggiungi tratti al percorso', state.flyout === 'add'),
+    toolBtn('el.addStraight', ICO.straight, 'Aggiungi un rettilineo in coda'),
+    toolBtn('el.addArc', ICO.arc, 'Aggiungi una curva in coda'),
+    toolBtn('tool:finish', ICO.finish, 'Sposta la linea di arrivo sul percorso', t === 'finish'),
+    toolBtn('mode.quota', ICO.quota, 'Modalità quota: tutto bloccato, misuri sulla pista', state.mode === 'quota'),
+    '<div class="ftSep"></div>',
+    toolBtn('fly:add', '📐', 'Opzioni dei tratti del percorso', state.flyout === 'add'),
     toolBtn('area.toggleEdit', '🗺️', 'Modifica i lati dell\'area', state.mode === 'area'),
     toolBtn('fly:struct', '🧱', 'Libreria ostacoli', state.flyout === 'struct' || picking),
     toolBtn('fly:gen', '⚙️', 'Genera il percorso', state.flyout === 'gen'),
@@ -734,17 +744,13 @@ export function flyoutHTML(state) {
     const t = state.project.track;
     return `<div class="flyBox">${head('Tratti del percorso')}
       <div class="flyBody">
-        <div class="flyRow">
-          ${btn('el.addStraight', '+ Rettilineo')}
-          ${btn('el.addArc', '+ Curva')}
-        </div>
         <div class="flyRow">${btn('track.closeLoop', 'Chiudi l\'anello alla partenza', 'primary')}</div>
         <div class="flds">
           ${num('Raggio interno predefinito', 'ui.drawRadius', state.drawRadius, { step: 0.5, min: 0 })}
           ${num('Larghezza corsia', 'track.defaultWidth', t.defaultWidth, { step: 0.25, min: 0.5 })}
         </div>
         <div class="flyRow">${btn('track.applyWidthAll', 'Applica la larghezza a tutti', 'mini')}</div>
-        <p class="hint">Con la matita: primo clic la partenza, poi la corsia si allunga col puntatore e un secondo clic la fissa.</p>
+        <p class="hint">I tasti <b>+ rettilineo</b> e <b>+ curva</b> sono nella barra a sinistra, subito sotto la matita. Con la matita: primo clic la partenza, poi la corsia si allunga col puntatore e un secondo clic la fissa.</p>
       </div>
     </div>`;
   }

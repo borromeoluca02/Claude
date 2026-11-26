@@ -52,6 +52,18 @@ export function attachInteractions(svg, api) {
     const hit = pickOf(e);
     const wp = world(e);
 
+    // modalità quota: niente si afferra e niente si modifica; il tocco secco
+    // misura, il trascinamento sposta soltanto la vista
+    if (st.mode === 'quota') {
+      drag = { kind: 'pan', from: toLocal(e), cx: st.view.cx, cy: st.view.cy, tap: { measure: wp } };
+      return;
+    }
+    // posa della linea di arrivo in un punto qualsiasi del percorso
+    if (st.tool === 'finish') {
+      drag = { kind: 'pan', from: toLocal(e), cx: st.view.cx, cy: st.view.cy, tap: { finish: wp } };
+      return;
+    }
+
     // con uno strumento attivo il tocco "secco" agisce, il trascinamento sposta la vista
     if (st.tool === 'draw' || (st.tool && st.tool.startsWith('add:'))) {
       drag = { kind: 'pan', from: toLocal(e), cx: st.view.cx, cy: st.view.cy, tap: { wp, tool: st.tool } };
@@ -109,6 +121,8 @@ export function attachInteractions(svg, api) {
     // l'anteprima del disegno va aggiornata anche senza pulsante premuto,
     // quindi prima del filtro sui puntatori attivi
     if (!drag && !pinch && st.tool === 'draw' && api.previewTo) api.previewTo(world(e));
+    // lettura delle misure: in modalità quota e mentre si posa l'arrivo
+    if (!drag && !pinch && (st.mode === 'quota' || st.tool === 'finish') && api.measureTo) api.measureTo(world(e));
     if (!pointers.has(e.pointerId)) return;
     pointers.set(e.pointerId, toLocal(e));
     const { W, H } = dims();
@@ -228,6 +242,8 @@ export function attachInteractions(svg, api) {
     }
     // tocco senza trascinamento
     if (d.tap) {
+      if (d.tap.measure) { api.measureFix(d.tap.measure); return; }
+      if (d.tap.finish) { api.setFinishAt(d.tap.finish); return; }
       if (d.tap.tool === 'draw') api.drawTo(d.tap.wp);
       else api.addStructureAt(d.tap.tool.slice(4), d.tap.wp);
       return;
@@ -238,7 +254,10 @@ export function attachInteractions(svg, api) {
   svg.addEventListener('pointercancel', endPointer);
   svg.addEventListener('lostpointercapture', endPointer);
 
-  svg.addEventListener('pointerleave', () => { if (api.previewTo) api.previewTo(null); });
+  svg.addEventListener('pointerleave', () => {
+    if (api.previewTo) api.previewTo(null);
+    if (api.measureTo) api.measureTo(null);
+  });
 
   svg.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -255,6 +274,7 @@ export function attachInteractions(svg, api) {
   }, { passive: false });
 
   svg.addEventListener('dblclick', (e) => {
+    if (api.state().mode === 'quota') return;
     const hit = pickOf(e);
     if (hit && hit.pick === 'structure') api.openStructure(hit.id);
     else if (hit && hit.pick === 'element') api.openElement(hit.id);

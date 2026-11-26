@@ -12,6 +12,8 @@ svg#canvas .widthTick,
 svg#canvas .laneLine,
 svg#canvas .axis,
 svg#canvas .finish,
+svg#canvas .finishBand,
+svg#canvas .measure,
 svg#canvas .grid,
 svg#canvas .scaleBar,
 svg#canvas .ghost { pointer-events: none; }
@@ -32,6 +34,21 @@ svg#canvas .ghost { pointer-events: none; }
 .edge.sel { stroke-width: 4; }
 .axis { fill: none; stroke: #2b3a4a; stroke-width: 1.2; stroke-dasharray: 7 6; opacity: .75; }
 .finish { stroke: #111; stroke-width: 4; stroke-dasharray: 5 4; }
+/* linea d'arrivo a quadretti bianchi e neri */
+.fq { stroke: none; }
+.fq.dark { fill: #15181c; }
+.fq.light { fill: #ffffff; }
+.finishEdge { stroke: #15181c; stroke-width: 1.4; fill: none; }
+
+/* lettura delle misure (modalità quota) */
+.mCross { stroke: #b5179e; stroke-width: 2; }
+.mDot { fill: #fff; stroke: #b5179e; stroke-width: 2.2; }
+.mPath { fill: none; stroke: #b5179e; stroke-width: 3.4; opacity: .85; stroke-linecap: round; }
+.mBox { fill: #fff; stroke: #b5179e; stroke-width: 1.4; opacity: .97; }
+.mKey { fill: #6b7786; font-size: 10.5px; }
+.mVal { fill: #15181c; font-size: 11px; font-weight: 700; }
+.mHint { fill: #b5179e; font-size: 10px; }
+.quotaLbl .elLbl { font-weight: 700; }
 .finishLbl { fill: #111; font-size: 10px; font-weight: 700; letter-spacing: .08em; }
 
 .startBox { fill: #fdf6d8; stroke: #8a7520; stroke-width: 1.6; }

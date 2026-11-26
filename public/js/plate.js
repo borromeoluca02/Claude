@@ -5,8 +5,8 @@
    conformità al regolamento. */
 
 import * as G from './geometry.js';
-import { edgePaths, frameAt, footprint, startGateGeometry, startRampGeometry } from './track.js';
-import { fmt, fmtM } from './render.js';
+import { edgePaths, frameAt, footprint, startGateGeometry, startRampGeometry, finishBandCells } from './track.js';
+import { fmt, fmtM, raceSummary } from './render.js';
 import { GROUP_LABELS } from './model.js';
 import { REG_SOURCE } from './regulation.js';
 
@@ -70,6 +70,9 @@ svg.plate .obst.bad{fill:#f4dada}
 svg.plate .gate{fill:#fdf6d8;stroke:#111;stroke-width:.35}
 svg.plate .gateline{fill:none;stroke:#111;stroke-width:.25;stroke-dasharray:2.2 1.6}
 svg.plate .startline{stroke:#111;stroke-width:.9}
+svg.plate .fqd{fill:#111;stroke:none}
+svg.plate .fql{fill:#fff;stroke:none}
+svg.plate .fqbox{fill:none;stroke:#111;stroke-width:.35}
 svg.plate .dim{stroke:#111;stroke-width:.18;fill:none}
 svg.plate .tagc{fill:#fff;stroke:#111;stroke-width:.35}
 svg.plate .cell{stroke:#111;stroke-width:.18;fill:none}
@@ -142,7 +145,9 @@ function titleBlock(project, analysis, lay, opts, pageNo, pageTot, scale, sheetT
   const c1 = t.x + 2.5;
   const line = (x, i, label, val, cls = 't22') =>
     T(x, r1 + 4.2 + i * 3.6, label, cls + ' gray') + T(x + 26, r1 + 4.2 + i * 3.6, val, cls + ' b');
-  o += line(c1, 0, 'Sviluppo asse', `${n2(s.totalLength)} m`);
+  o += s.laps > 1 || s.finishAt !== null
+    ? line(c1, 0, 'Sviluppo di gara', `${n2(s.raceLength)} m${s.laps > 1 ? ` (${s.laps} passaggi)` : ` (giro ${n2(s.totalLength)} m)`}`)
+    : line(c1, 0, 'Sviluppo asse', `${n2(s.totalLength)} m`);
   o += line(c1, 1, 'Rettilinei / curve', `${n1(s.straightLength)} / ${n1(s.curveLength)} m`);
   o += line(c1, 2, 'Curve (dx / sx)', `${s.curveCount} (${s.curvesRight} / ${s.curvesLeft})`);
   o += line(c1, 3, 'Larghezza corsia', `${n2(s.minWidth)} – ${n2(s.maxWidth)} m`);
@@ -288,6 +293,20 @@ export function platePlan(project, analysis, opts = {}) {
     o += T(c.x, c.y + 1, String(it.n), 't25 c b');
   }
 
+  // linea di arrivo a scacchi, dove finisce la gara
+  if (baked.totalLength) {
+    const fs = Math.min(analysis.stats.finishStation || baked.totalLength, baked.totalLength);
+    const band = finishBandCells(baked, fs);
+    for (const c of band.cells) o += poly(c.corners.map(P), c.dark ? 'fqd' : 'fql');
+    o += poly(band.outline.map(P), 'fqbox');
+    const f = band.frame;
+    const lp = P(add(f.point, mul(leftOf(f.heading), -(f.width / 2 + 2.6))));
+    let fa = -f.heading * G.RAD;
+    while (fa > 90) fa -= 180; while (fa < -90) fa += 180;
+    const ftxt = analysis.stats.laps > 1 ? `ARRIVO — ${analysis.stats.laps}° passaggio` : 'ARRIVO';
+    o += `<text x="${lp.x.toFixed(2)}" y="${lp.y.toFixed(2)}" class="t25 b c" transform="rotate(${fa.toFixed(1)} ${lp.x.toFixed(2)} ${lp.y.toFixed(2)})">${ftxt}</text>`;
+  }
+
   // progressive ogni N metri
   const stationStep = opts.stationStep || 25;
   if (stationStep > 0 && baked.totalLength) {
@@ -310,8 +329,10 @@ export function platePlan(project, analysis, opts = {}) {
     const nn = leftOf(f.heading);
     const tw = G.dot(sub({ x: cxm, y: cym }, f.point), nn) >= 0 ? 1 : -1;
     const p = P(add(f.point, mul(nn, tw * (f.width / 2 + 4))));
-    o += R(p.x - 24, p.y - 4.4, 48, 8.8, 'med', ' style="fill:#fff"');
-    o += T(p.x, p.y - 0.6, `SVILUPPO ASSE ${n2(baked.totalLength)} m`, 't25 c b');
+    const rs = raceSummary(analysis.stats);
+    const bw = Math.max(48, rs.length * 1.35 + 8);
+    o += R(p.x - bw / 2, p.y - 4.4, bw, 8.8, 'med', ' style="fill:#fff"');
+    o += T(p.x, p.y - 0.6, rs, 't25 c b');
     o += T(p.x, p.y + 3, `corsia ${n2(analysis.stats.minWidth)}–${n2(analysis.stats.maxWidth)} m`, 't2 c gray');
   }
   o += `</g>`;

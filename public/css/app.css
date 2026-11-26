@@ -431,3 +431,6 @@ body.onHome .top .tbtn[data-act="go.home"]{display:none}
   .flyout{left:56px;top:8px;max-width:calc(100% - 66px)}
   .flyBox,.flyBox.wide{width:min(340px,100%)}
 }
+
+/* icone vettoriali dentro i tasti della barra sul disegno */
+.ft .ico{width:19px;height:19px;display:block}
