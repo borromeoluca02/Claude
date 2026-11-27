@@ -116,13 +116,24 @@ body.resizing #canvas{pointer-events:none}
 .cOk{color:var(--ok)} .cBad{color:var(--bad)}
 
 .flds{display:grid;grid-template-columns:1fr 1fr;gap:7px}
-.fld{display:flex;align-items:center;gap:6px;background:#f7fafc;border:1px solid var(--line);border-radius:8px;padding:4px 7px}
-.fld span{font-size:11.5px;color:var(--ink2);flex:1 1 auto;min-width:0}
+/* un elenco a discesa con voci lunghe allargherebbe la colonna oltre il
+   pannello: qui puo' sempre restringersi */
+.flds>*{min-width:0}
+.fld{
+  display:flex;align-items:center;gap:6px;background:#f7fafc;border:1px solid var(--line);
+  border-radius:8px;padding:4px 7px;
+  /* se etichetta e valore non ci stanno sulla stessa riga il valore va a capo,
+     invece di uscire dal pannello */
+  flex-wrap:wrap
+}
+.fld span{font-size:11.5px;color:var(--ink2);flex:1 1 68px;min-width:0;overflow-wrap:anywhere}
 .fld input,.fld select{
   border:0;background:transparent;width:62px;text-align:right;padding:3px 0;font-weight:600;
-  min-width:0;flex:0 0 auto
+  min-width:0;flex:0 1 auto;max-width:100%
 }
-.fld select{width:auto;font-weight:600}
+.fld:not(.chk):not(.rng) input,.fld:not(.chk):not(.rng) select{margin-left:auto}
+.fld input[type=text]{width:auto;flex:1 1 86px}
+.fld select{width:auto;font-weight:600;text-overflow:ellipsis}
 .fld input:focus,.fld select:focus{outline:2px solid var(--accent);outline-offset:1px;border-radius:4px}
 .fld i{font-style:normal;color:var(--ink2);font-size:11px;min-width:14px}
 .fld.chk{grid-column:1/-1}
@@ -141,11 +152,11 @@ body.resizing #canvas{pointer-events:none}
 .btn.danger:hover{background:#fdf1f1}
 .btn.mini{padding:4px 8px;font-size:12px}
 
-.seg{display:flex;gap:4px;background:#eef2f7;border-radius:9px;padding:3px}
-.segb{flex:1;border:0;background:transparent;border-radius:7px;padding:7px 6px;font-size:12.5px;color:var(--ink2)}
+.seg{display:flex;flex-wrap:wrap;gap:4px;background:#eef2f7;border-radius:9px;padding:3px}
+.segb{flex:1 1 72px;border:0;background:transparent;border-radius:7px;padding:7px 6px;font-size:12.5px;color:var(--ink2);min-width:0}
 .segb.on{background:#fff;color:var(--ink);font-weight:700;box-shadow:0 1px 2px rgba(16,32,48,.12)}
 
-.lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:6px}
+.lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(116px,1fr));gap:6px}
 .libb{
   border:1px solid var(--line);background:#fff;border-radius:9px;padding:7px;text-align:left;
   display:flex;flex-direction:column;gap:2px;line-height:1.25
@@ -229,8 +240,21 @@ code{background:#eef2f7;border-radius:4px;padding:1px 4px;font-size:12px}
 }
 @media (max-width:520px){
   .tbtn[data-act="exp.png"]{display:none}
+}
+
+/* Il pannello si puo' stringere a piacere, anche su uno schermo grande:
+   quello che conta e' la sua larghezza, non quella della finestra. */
+#panelBody,.flyBody{container-type:inline-size}
+@container (max-width:430px){
   .flds{grid-template-columns:1fr}
   .fld input{width:72px}
+  .lib{grid-template-columns:repeat(auto-fill,minmax(112px,1fr))}
+}
+@container (max-width:260px){
+  .fld{align-items:flex-start}
+  .fld span{flex:1 1 100%}
+  .fld input,.fld select{margin-left:auto}
+  .libb i{font-size:10px}
 }
 
 /* raggruppamento della libreria ostacoli */
@@ -409,7 +433,10 @@ body.onHome .top .tbtn[data-act="go.home"]{display:none}
 .flyBox{
   background:#fff;border:1px solid var(--line);border-radius:12px;
   box-shadow:0 8px 28px rgba(16,32,48,.18);display:flex;flex-direction:column;overflow:hidden;
-  width:300px;max-width:100%
+  width:300px;max-width:100%;
+  /* senza questo un contenuto lungo allarga il riquadro oltre lo schermo:
+     un elemento flessibile non scende sotto la larghezza minima del testo */
+  min-width:0
 }
 .flyBox.wide{width:380px}
 .flyHead{
@@ -423,7 +450,7 @@ body.onHome .top .tbtn[data-act="go.home"]{display:none}
 .flyGroup h5{
   margin:0 0 5px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink2)
 }
-.flyBody .lib{grid-template-columns:repeat(auto-fill,minmax(108px,1fr))}
+.flyBody .lib{grid-template-columns:repeat(auto-fill,minmax(116px,1fr))}
 .flyBody .flds{grid-template-columns:1fr}
 .flyBody .hint{margin-top:8px}
 

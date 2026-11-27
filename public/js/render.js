@@ -116,8 +116,12 @@ function basemapLayer(state) {
   });
   if (!L || !L.tiles.length) return '';
   const a = toScreen(state.view, state.W, state.H, { x: 0, y: 0 });
+  // molto oltre il dettaglio delle foto l'interpolazione impasta tutto:
+  // meglio il pixel netto, che almeno tiene i riferimenti al loro posto
+  const ingrandimento = L.mpp * state.view.scale;
+  const cls = 'basemap' + (ingrandimento > 6 ? ' sgranata' : '');
   // la rotazione del disegno (y in su) è oraria sullo schermo: segno invertito
-  let s = `<g class="basemap" opacity="${(bm.opacity || 0.9).toFixed(2)}" transform="rotate(${(-L.rotation).toFixed(3)} ${a.x.toFixed(1)} ${a.y.toFixed(1)})">`;
+  let s = `<g class="${cls}" opacity="${(bm.opacity || 0.9).toFixed(2)}" transform="rotate(${(-L.rotation).toFixed(3)} ${a.x.toFixed(1)} ${a.y.toFixed(1)})">`;
   for (const t of L.tiles) {
     s += `<image href="${esc(t.url)}" xlink:href="${esc(t.url)}" crossorigin="anonymous" preserveAspectRatio="none" data-z="${L.zoom}"`
       + ` x="${t.x.toFixed(2)}" y="${t.y.toFixed(2)}" width="${t.w.toFixed(2)}" height="${t.h.toFixed(2)}"/>`;

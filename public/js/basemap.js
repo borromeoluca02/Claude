@@ -102,7 +102,7 @@ const zoomCaps = new Map();
 const probing = new Set();
 
 function regionKey(bm) {
-  const z = 11;                                    // ~20 km per riquadro
+  const z = 13;                                    // ~5 km per riquadro
   const sorgente = bm.provider === 'custom' ? `custom:${bm.customUrl || ''}` : bm.provider;
   return `${sorgente}@${Math.floor(lonToPx(bm.lon, z) / TILE)}/${Math.floor(latToPx(bm.lat, z) / TILE)}`;
 }
@@ -175,6 +175,28 @@ async function fetchTile(url) {
       return { ok: !looksEmpty(img, blob.size) };
     } finally { URL.revokeObjectURL(src); }
   } catch (e) { return { ok: false, rete: true }; }
+}
+
+/**
+ * Controlla una delle tessere che si stanno mostrando: se è una di cortesia
+ * («dati non disponibili») si scende di livello e si ridisegna. È la rete di
+ * sicurezza per i bordi di copertura, dove la tessera di prova esiste ma
+ * quelle accanto no.
+ */
+const vistiOk = new Set();
+function verifyShown(bm, out, opts) {
+  if (typeof fetch === 'undefined' || !out.tiles.length) return;
+  const k = `${regionKey(bm)}#${out.zoom}`;
+  if (vistiOk.has(k) || probing.has('v' + k)) return;
+  probing.add('v' + k);
+  const t = out.tiles[Math.floor(out.tiles.length / 2)];   // una al centro della vista
+  fetchTile(t.url).then((res) => {
+    probing.delete('v' + k);
+    if (res.ok) { if (vistiOk.size > 400) vistiOk.clear(); vistiOk.add(k); return; }
+    if (res.rete) return;                                   // rete ballerina: non si conclude nulla
+    noteTileError(bm, out.zoom);
+    if (typeof opts.onUpdate === 'function') opts.onUpdate();
+  });
 }
 
 /**
@@ -328,6 +350,7 @@ export function tileLayer(bm, view, W, H, opts = {}) {
       });
     }
   }
+  if (opts.probe !== false) verifyShown(bm, out, opts);
   return out;
 }
 
