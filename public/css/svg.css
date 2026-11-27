@@ -135,3 +135,5 @@ svg#canvas.hasMap text.lbl {
 }
 svg#canvas.hasMap text.lbl.totalLbl,
 svg#canvas.hasMap text.lbl.totalSub { stroke: none; }
+.mLine { stroke: #b5179e; stroke-width: 2.6; stroke-linecap: round; }
+.mHair { stroke: #b5179e; stroke-width: 1.4; stroke-dasharray: 4 3; opacity: .8; }

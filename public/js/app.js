@@ -841,6 +841,17 @@ const actions = {
     state.project.structures.push(copy);
     commit();
   },
+  'st.resetSize': (id) => {
+    const s = state.project.structures[stIndex(id)];
+    if (!s) return;
+    const std = libraryItem(s.key);
+    if (!std) return;
+    s.length = std.length; s.width = std.width;
+    const catH = std.byCategory ? (categoryInfo(state.project.category) || {})[std.byCategory] : null;
+    s.height = catH ?? std.height;
+    commit();
+    toast(`«${s.name}» riportata alle misure di riferimento`);
+  },
   'st.center': (id) => { const s = state.project.structures[stIndex(id)]; s.side = 0; s.rotation = 0; s.mode = 'path'; commit(); },
   'st.snapValid': (id) => {
     const s = state.project.structures[stIndex(id)];
@@ -1320,13 +1331,37 @@ function rotateBasemapTo(deg, pivot) {
 }
 const areaCenter = () => G.polygonCentroid(state.project.area.points);
 
-/* punto misurato sull'asse della pista, con progressiva e larghezza */
+/**
+ * Punto da misurare: resta dove si clicca, anche fuori dalla pista, così si
+ * possono prendere le distanze dal bordo dell'area o fra due parti diverse
+ * del percorso. Oltre al punto si porta dietro tutto quello che serve a
+ * leggere la misura: progressiva e larghezza se cade in carreggiata, e in
+ * ogni caso quanto dista dal bordo pista e dal bordo dell'area.
+ */
 function measurePoint(wp) {
   const baked = state.analysis.baked;
-  const pr = projectPoint(baked, wp);
-  const s = G.clamp(pr.station, 0, baked.totalLength);
-  const f = frameAt(baked, s);
-  return { station: s, point: f.point, width: f.width, side: pr.side };
+  const pts = state.project.area.points;
+  const out = { point: { x: wp.x, y: wp.y }, onTrack: false };
+  if (baked.elements.length) {
+    const pr = projectPoint(baked, wp);
+    const s = G.clamp(pr.station, 0, baked.totalLength);
+    const f = frameAt(baked, s);
+    out.station = s;
+    out.width = f.width;
+    out.side = pr.side;
+    out.axisDist = pr.dist;
+    out.axisPoint = f.point;
+    out.onTrack = pr.dist <= f.width / 2 + 1e-6;
+    const { left, right } = edgePaths(baked);
+    const dl = G.projectOnPolyline(wp, left).dist;
+    const dr = G.projectOnPolyline(wp, right).dist;
+    out.toEdge = Math.min(dl, dr);
+  }
+  if (pts && pts.length >= 3) {
+    out.toArea = G.distToPolygonEdge(wp, pts);
+    out.inArea = G.pointInPolygon(wp, pts);
+  }
+  return out;
 }
 
 const api = {
@@ -1379,9 +1414,8 @@ const api = {
   },
   /* modalità quota: segue il puntatore sull'asse della pista */
   measureTo(wp) {
-    const baked = state.analysis.baked;
     // uscendo dal disegno la lettura si spegne, ma il punto fissato resta
-    if (!wp || !baked.elements.length) {
+    if (!wp) {
       if (state.measure && !state.measure.from) { state.measure = null; paint(); }
       return;
     }
@@ -1390,8 +1424,6 @@ const api = {
   },
   /* clic: fissa il primo punto, un secondo clic azzera la misura */
   measureFix(wp) {
-    const baked = state.analysis.baked;
-    if (!baked.elements.length) return;
     const at = measurePoint(wp);
     if (state.measure && state.measure.from) state.measure = { at, from: null };
     else state.measure = { at, from: at };

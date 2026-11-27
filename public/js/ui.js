@@ -29,7 +29,11 @@ const nv = (v) => (v == null || v === '' || Number.isNaN(+v) ? '' : String(Math.
 /** campo numerico legato a una proprietà del progetto */
 function num(labelTxt, bind, value, opts = {}) {
   const { step = 0.1, min = null, max = null, unit = 'm', hint = '', cls = '' } = opts;
-  return `<label class="fld ${cls}"><span>${e(labelTxt)}</span>` +
+  // l'etichetta può portare una precisazione fra <small>, che non va sfuggita
+  const lab = /<small>/.test(labelTxt)
+    ? labelTxt.replace(/^([^<]*)/, (m0) => e(m0)).replace(/<small>([^<]*)<\/small>/, (m0, t) => `<small>${e(t)}</small>`)
+    : e(labelTxt);
+  return `<label class="fld ${cls}"><span>${lab}</span>` +
     `<input type="number" inputmode="decimal" data-bind="${bind}" value="${nv(value)}" step="${step}"` +
     `${min !== null ? ` min="${min}"` : ''}${max !== null ? ` max="${max}"` : ''}${hint ? ` placeholder="${e(hint)}"` : ''}>` +
     `${unit ? `<i>${e(unit)}</i>` : ''}</label>`;
@@ -313,6 +317,24 @@ function trackPanel(state) {
 
 /* ------------------------------------------------------------- STRUTTURE */
 
+/** pulsante della libreria: misure sempre con la loro dicitura */
+function libButton(state, s) {
+  const on = state.tool === 'add:' + s.key;
+  const tip = `${s.name} · lunghezza ${fmt(s.length, 2)} m lungo il percorso, larghezza ${fmt(s.width, 2)} m in trasversale, altezza ${fmt(s.height, 2)} m${s.note ? ' · ' + s.note : ''}`;
+  return `<button class="libb${on ? ' on' : ''}" data-act="st.pick:${s.key}" title="${e(tip)}">
+    <b>${e(s.name)}</b>
+    <i>lung. ${fmt(s.length, 2)} · larg. ${fmt(s.width, 2)} m</i>
+    <i class="dim">altezza ${fmt(s.height, 2)} m</i></button>`;
+}
+
+/** misure di riferimento della voce di libreria, per confronto */
+function standardOf(key) { return STRUCTURE_LIBRARY.find((x) => x.key === key) || null; }
+function sizeChanged(s) {
+  const std = standardOf(s.key);
+  if (!std) return false;
+  return Math.abs(s.length - std.length) > 0.005 || Math.abs(s.width - std.width) > 0.005;
+}
+
 function structPanel(state) {
   const p = state.project;
   const st = state.analysis.status;
@@ -336,9 +358,7 @@ function structPanel(state) {
       (q ? ` <span class="${counts[g] >= q ? 'cOk' : 'cBad'}">${counts[g]}/${q}</span>` : '') +
       (g === 'rampe' && q ? ` <span class="dim">· ${rampTypes.size}/${ROLLER.groups.rampeTipologie} tipologie</span>` : '') +
       `</div>`;
-    const btns = items.map((s) =>
-      `<button class="libb${state.tool === 'add:' + s.key ? ' on' : ''}" data-act="st.pick:${s.key}" title="${e(s.note || s.name)}">
-        <b>${e(s.name)}</b><i>${fmt(s.length, 2)}×${fmt(s.width, 2)} · h ${fmt(s.height, 2)}</i></button>`).join('');
+    const btns = items.map((s) => libButton(state, s)).join('');
     return head + `<div class="lib">${btns}</div>`;
   }).join('');
 
@@ -359,11 +379,19 @@ function structPanel(state) {
         ${libIt && libIt.note ? `<p class="hint small">${e(libIt.note)}</p>` : ''}
         <div class="flds">
           ${txt('Nome', `structures.${i}.name`, s.name)}
-          ${num('Altezza', `structures.${i}.height`, s.height, { step: 0.05 })}
-          ${num('Lunghezza', `structures.${i}.length`, s.length, { step: 0.1, min: 0.2 })}
-          ${num('Larghezza', `structures.${i}.width`, s.width, { step: 0.1, min: 0.2 })}
+        </div>
+        <div class="subHead">Misure della struttura ${sizeChanged(s) ? '<span class="badge warn">personalizzate</span>' : ''}</div>
+        <div class="flds">
+          ${num('Lunghezza <small>nel senso di marcia</small>', `structures.${i}.length`, s.length, { step: 0.1, min: 0.2 })}
+          ${num('Larghezza <small>in trasversale</small>', `structures.${i}.width`, s.width, { step: 0.1, min: 0.2 })}
+          ${num('Altezza <small>da terra</small>', `structures.${i}.height`, s.height, { step: 0.05 })}
+        </div>
+        ${libIt ? `<p class="hint small">Misure di riferimento del regolamento: <b>lunghezza ${fmt(libIt.length, 2)} m</b> nel senso di marcia, <b>larghezza ${fmt(libIt.width, 2)} m</b> in trasversale, <b>altezza ${fmt(libIt.height, 2)} m</b>. Se la struttura che hai davvero è diversa, cambia pure i valori qui sopra.
+          ${sizeChanged(s) ? btn('st.resetSize', 'Rimetti le misure standard', 'mini', s.id) : ''}</p>` : ''}
+        <div class="subHead">Posizione</div>
+        <div class="flds">
           ${s.mode === 'path'
-          ? num('Progressiva', `structures.${i}.station`, s.station, { step: 0.5 }) + num('Scostamento', `structures.${i}.side`, s.side, { step: 0.25 })
+          ? num('Progressiva <small>lungo l\'asse</small>', `structures.${i}.station`, s.station, { step: 0.5 }) + num('Scostamento <small>dal centro corsia</small>', `structures.${i}.side`, s.side, { step: 0.25 })
           : num('X', `structures.${i}.x`, s.x, { step: 0.5 }) + num('Y', `structures.${i}.y`, s.y, { step: 0.5 })}
           ${num('Rotazione', `structures.${i}.rotation`, s.rotation, { step: 5, unit: '°' })}
           ${sel('Ancoraggio', `structures.${i}.mode`, s.mode, [['path', 'Sul percorso'], ['free', 'Libera']])}
@@ -865,8 +893,7 @@ export function flyoutHTML(state) {
       const items = STRUCTURE_LIBRARY.filter((s) => s.group === g);
       if (!items.length) return '';
       return `<div class="flyGroup"><h5>${e(GROUP_LABELS[g] || g)}</h5>
-        <div class="lib">${items.map((s) => `<button class="libb${state.tool === 'add:' + s.key ? ' on' : ''}" data-act="st.pick:${s.key}" title="${e(s.note || s.name)}">
-          <b>${e(s.name)}</b><i>${fmt(s.length, 2)}×${fmt(s.width, 2)} · h ${fmt(s.height, 2)}</i></button>`).join('')}</div></div>`;
+        <div class="lib">${items.map((s) => libButton(state, s)).join('')}</div></div>`;
     }).join('');
     return `<div class="flyBox wide">${head('Libreria ostacoli')}
       <div class="flyBody">

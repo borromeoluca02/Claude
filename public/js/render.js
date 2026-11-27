@@ -281,26 +281,51 @@ function measureOverlay(state, S) {
   const baked = state.analysis.baked;
   let s = '<g class="measure">';
   const here = S(m.at.point);
-  // crocetta sul punto
+
+  // crocetta sul punto misurato
   s += `<line class="mCross" x1="${(here.x - 7).toFixed(1)}" y1="${here.y.toFixed(1)}" x2="${(here.x + 7).toFixed(1)}" y2="${here.y.toFixed(1)}"/>`;
   s += `<line class="mCross" x1="${here.x.toFixed(1)}" y1="${(here.y - 7).toFixed(1)}" x2="${here.x.toFixed(1)}" y2="${(here.y + 7).toFixed(1)}"/>`;
 
   const rows = [];
+  const num = (v) => fmtM(v, 2);
   if (m.from) {
-    const a = Math.min(m.from.station, m.at.station), b = Math.max(m.from.station, m.at.station);
-    const seg = baked.samples.filter((q) => q.s >= a - 1e-6 && q.s <= b + 1e-6);
-    if (seg.length > 1) s += `<path class="mPath" d="${pathOf(S, seg)}"/>`;
-    const p0 = S(m.from.point);
-    s += `<circle class="mDot" cx="${p0.x.toFixed(1)}" cy="${p0.y.toFixed(1)}" r="4"/>`;
-    rows.push(['sull\'asse', fmtM(b - a, 2)]);
-    rows.push(['in linea d\'aria', fmtM(G.dist(m.from.point, m.at.point), 2)]);
-    rows.push(['da', `${fmt(a, 1)} a ${fmt(b, 1)} m`]);
+    // segmento fra i due punti: è la misura principale
+    const a = S(m.from.point);
+    s += `<line class="mLine" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${here.x.toFixed(1)}" y2="${here.y.toFixed(1)}"/>`;
+    s += `<circle class="mDot" cx="${a.x.toFixed(1)}" cy="${a.y.toFixed(1)}" r="4"/>`;
+    rows.push(['in linea d\'aria', num(G.dist(m.from.point, m.at.point))]);
+    // se entrambi i punti sono in carreggiata vale anche la misura sull'asse
+    if (m.from.onTrack && m.at.onTrack && baked.elements.length) {
+      const s0 = Math.min(m.from.station, m.at.station), s1 = Math.max(m.from.station, m.at.station);
+      const seg = baked.samples.filter((q) => q.s >= s0 - 1e-6 && q.s <= s1 + 1e-6);
+      if (seg.length > 1) s += `<path class="mPath" d="${pathOf(S, seg)}"/>`;
+      rows.push(['lungo la pista', num(s1 - s0)]);
+      rows.push(['progressive', `${fmt(s0, 1)} → ${fmt(s1, 1)} m`]);
+    } else {
+      const dx = Math.abs(m.at.point.x - m.from.point.x), dy = Math.abs(m.at.point.y - m.from.point.y);
+      rows.push(['in orizzontale', num(dx)]);
+      rows.push(['in verticale', num(dy)]);
+    }
+  } else if (m.at.onTrack) {
+    rows.push(['progressiva', num(m.at.station)]);
+    rows.push(['corsia qui', num(m.at.width)]);
+    if (m.at.toEdge != null) rows.push(['dal bordo pista', num(m.at.toEdge)]);
+    if (m.at.toArea != null) rows.push([m.at.inArea ? 'dal bordo area' : 'fuori area, dal bordo', num(m.at.toArea)]);
+    const fin = (state.analysis.stats.finishStation || baked.totalLength) - m.at.station;
+    rows.push(['manca all\'arrivo', num(Math.max(0, fin))]);
   } else {
-    rows.push(['progressiva', fmtM(m.at.station, 2)]);
-    rows.push(['corsia', fmtM(m.at.width, 2)]);
-    rows.push(['manca all\'arrivo', fmtM(Math.max(0, (state.analysis.stats.finishStation || baked.totalLength) - m.at.station), 2)]);
+    if (m.at.toEdge != null) rows.push(['dal bordo pista', num(m.at.toEdge)]);
+    if (m.at.axisDist != null) rows.push(['dall\'asse pista', num(m.at.axisDist)]);
+    if (m.at.toArea != null) rows.push([m.at.inArea ? 'dal bordo area' : 'fuori area, dal bordo', num(m.at.toArea)]);
   }
-  const bw = 168, bh = 16 + rows.length * 13;
+
+  // quando c'è un punto fissato, il bordo più vicino si vede anche a schermo
+  if (!m.from && !m.at.onTrack && m.at.axisPoint && m.at.axisDist != null && m.at.axisDist < 60) {
+    const ap = S(m.at.axisPoint);
+    s += `<line class="mHair" x1="${ap.x.toFixed(1)}" y1="${ap.y.toFixed(1)}" x2="${here.x.toFixed(1)}" y2="${here.y.toFixed(1)}"/>`;
+  }
+
+  const bw = 182, bh = 16 + rows.length * 13 + (m.from ? 0 : 13);
   let bx = here.x + 14, by = here.y - bh - 10;
   if (bx + bw > state.W - 8) bx = here.x - bw - 14;
   if (by < 8) by = here.y + 14;
@@ -309,7 +334,7 @@ function measureOverlay(state, S) {
     s += label(bx + 9, by + 16 + i * 13, k, 'mKey');
     s += label(bx + bw - 9, by + 16 + i * 13, v, 'mVal', 0, ' text-anchor="end"');
   });
-  if (!m.from) s += label(bx + 9, by + bh + 11, 'clicca per fissare il primo punto', 'mHint');
+  if (!m.from) s += label(bx + 9, by + 16 + rows.length * 13, 'clicca per fissare il primo punto', 'mHint');
   return s + '</g>';
 }
 
@@ -442,10 +467,13 @@ function structureText(state, S, st, fp, info) {
 
   // quote sui lati: lunghezza lungo il percorso, larghezza in trasversale
   if (k > 8 && !quota) {
+    // con spazio a sufficienza si scrive anche a quale misura si riferisce
     const pL = S(sub(c, mul(n, st.width / 2 + 0.55)));
-    s += label(pL.x, pL.y, fmtM(st.length, 2), 'stDim', screenAngle(h), ' text-anchor="middle"');
+    const lungTxt = (st.length * k > 96 ? 'lung. ' : '') + fmtM(st.length, 2);
+    s += label(pL.x, pL.y, lungTxt, 'stDim', screenAngle(h), ' text-anchor="middle"');
     const pW = S(sub(c, mul(d, st.length / 2 + 0.55)));
-    s += label(pW.x, pW.y, fmtM(st.width, 2), 'stDim', screenAngle(h + Math.PI / 2), ' text-anchor="middle"');
+    const largTxt = (st.width * k > 96 ? 'larg. ' : '') + fmtM(st.width, 2);
+    s += label(pW.x, pW.y, largTxt, 'stDim', screenAngle(h + Math.PI / 2), ' text-anchor="middle"');
   }
 
   // distanza dall'ostacolo precedente
