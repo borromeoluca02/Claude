@@ -13,7 +13,7 @@ import { attachInteractions } from './interact.js';
 import { panelHTML, tabsHTML, statusHTML, getPath, setPath, clearDialogHTML, toolbarHTML, flyoutHTML } from './ui.js';
 import { homeHTML, AREA_PRESETS } from './home.js';
 import * as store from './store.js';
-import { parsePlace, worldToLatLon, latLonToWorld, formatLatLon, mapsLink, provider } from './basemap.js';
+import { parsePlace, worldToLatLon, latLonToWorld, formatLatLon, mapsLink, provider, noteTileError } from './basemap.js';
 import { buildPlateSet } from './plate.js';
 
 const $ = (s) => document.querySelector(s);
@@ -100,8 +100,27 @@ function paint() {
     // su un prato scuro non si leggono
     canvas.classList.toggle('hasMap', !!(state.project && state.project.basemap && state.project.basemap.on));
     canvas.innerHTML = render(state);
+    watchTiles();
   });
 }
+/* se una tessera non arriva si scende di livello e si ridisegna: meglio una
+   foto ingrandita che nessuna foto */
+let tileErrAt = 0;
+function watchTiles() {
+  const bm = state.project && state.project.basemap;
+  if (!bm || !bm.on) return;
+  canvas.querySelectorAll('.basemap image').forEach((img) => {
+    img.addEventListener('error', () => {
+      const z = +img.getAttribute('data-z') || 0;
+      const now = Date.now();
+      if (now - tileErrAt < 400) return;      // un solo passo per volta
+      tileErrAt = now;
+      noteTileError(bm, z);
+      paint();
+    }, { once: true });
+  });
+}
+
 function paintPanel() {
   const top = panelBody.scrollTop;
   tabsEl.innerHTML = tabsHTML(state);
@@ -1416,6 +1435,7 @@ function boot() {
   state.project = saved ? normalizeProject(saved) : demoProject();
   state.firebaseConfig = store.getConfig();
   state.mapsKey = store.getMapsKey();
+  state.onMapUpdate = () => paint();
   state.localProjects = store.listLocal();
   state.resume = saved || null;
   resize();

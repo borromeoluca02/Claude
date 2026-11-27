@@ -20,7 +20,10 @@ export const PROVIDERS = {
     key: 'esri',
     name: 'Satellite (senza chiave)',
     credit: 'Immagini Esri, Maxar, Earthstar Geographics',
-    maxZoom: 20,
+    // `safeZoom` è il livello che esiste ovunque; sopra, le tessere ci sono
+    // solo dove il servizio ha foto più fitte, e si scopre provando
+    safeZoom: 19,
+    maxZoom: 22,
     needsKey: false,
     block: 1,
     url: (x, y, z) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
@@ -29,6 +32,7 @@ export const PROVIDERS = {
     key: 'google',
     name: 'Google Maps (con la tua chiave)',
     credit: 'Immagini © Google',
+    safeZoom: 21,          // la Static Maps risponde sempre, anche sgranando
     maxZoom: 21,
     needsKey: true,
     // la Static Maps API non serve tessere: si chiede un'immagine centrata
@@ -45,10 +49,25 @@ export const PROVIDERS = {
         + `&key=${encodeURIComponent(opts.apiKey || '')}`;
     },
   },
+  custom: {
+    key: 'custom',
+    name: 'Altro servizio a tessere (indirizzo)',
+    credit: 'Immagini del servizio indicato',
+    safeZoom: 18,
+    maxZoom: 22,
+    needsKey: false,
+    needsUrl: true,
+    block: 1,
+    // modello con i segnaposto {z} {x} {y}, come quasi tutti i servizi XYZ
+    url: (x, y, z, opts) => String(opts.customUrl || '')
+      .replace(/\{z\}/gi, z).replace(/\{x\}/gi, x).replace(/\{y\}/gi, y)
+      .replace(/\{-y\}/gi, String(Math.pow(2, z) - 1 - y)),
+  },
   googleroad: {
     key: 'googleroad',
     name: 'Google Maps stradale (con la tua chiave)',
     credit: 'Mappa © Google',
+    safeZoom: 21,
     maxZoom: 21,
     needsKey: true,
     block: 2,
@@ -64,6 +83,136 @@ export const PROVIDERS = {
 };
 
 export function provider(key) { return PROVIDERS[key] || PROVIDERS.esri; }
+
+/** l'indirizzo di un servizio esterno deve essere http(s) e avere i segnaposto */
+export function validCustomUrl(u) {
+  const s = String(u || '').trim();
+  return /^https?:\/\//i.test(s) && /\{z\}/i.test(s) && /\{x\}/i.test(s) && /\{-?y\}/i.test(s);
+}
+
+/* ------------------------------------- livello massimo davvero disponibile
+ * Nessun servizio ha foto fitte ovunque: oltre un certo livello le tessere
+ * non esistono e il disegno resterebbe senza sfondo proprio quando serve il
+ * dettaglio. Qui si parte dal livello garantito e si sale di uno alla volta
+ * solo dopo aver verificato che la tessera c'è davvero; quello che manca si
+ * ottiene ingrandendo l'ultimo livello buono, più sgranato ma sempre
+ * presente. Il risultato è ricordato per zona e per servizio.
+ */
+const zoomCaps = new Map();
+const probing = new Set();
+
+function regionKey(bm) {
+  const z = 11;                                    // ~20 km per riquadro
+  const sorgente = bm.provider === 'custom' ? `custom:${bm.customUrl || ''}` : bm.provider;
+  return `${sorgente}@${Math.floor(lonToPx(bm.lon, z) / TILE)}/${Math.floor(latToPx(bm.lat, z) / TILE)}`;
+}
+function capEntry(bm) {
+  const prov = provider(bm.provider);
+  const e = zoomCaps.get(regionKey(bm));
+  if (!e) return { cap: prov.safeZoom ?? prov.maxZoom, verified: false, locked: false, fails: 0 };
+  // un primo errore può essere solo rete che va male: si riprova più tardi
+  if (e.locked && e.fails < 2 && e.retryAt && Date.now() > e.retryAt) return { ...e, locked: false };
+  return e;
+}
+/** livello massimo utilizzabile adesso in questa zona */
+export function zoomCap(bm) {
+  const prov = provider(bm.provider);
+  return Math.min(prov.maxZoom, capEntry(bm).cap);
+}
+/** una tessera non è arrivata: da qui in poi si resta sotto */
+export function noteTileError(bm, z) {
+  const prov = provider(bm.provider);
+  const cur = capEntry(bm);
+  const cap = Math.max(12, Math.min(cur.cap, (+z || prov.maxZoom) - 1));
+  zoomCaps.set(regionKey(bm), { cap, verified: true, locked: true, fails: 2 });
+  return cap;
+}
+export function resetZoomCaps() { zoomCaps.clear(); probing.clear(); }
+
+/**
+ * Riconosce la tessera di cortesia che i servizi mandano dove non hanno
+ * foto a quel livello. Non è un errore HTTP: Esri risponde 200 con
+ * un'immagine grigia e la scritta «Map data not yet available». Misurata:
+ * grigio neutro attorno a 205, escursione una quindicina di livelli, circa
+ * 2,5 kB; una foto vera, alla stessa zona, sta sui 100 di media con
+ * escursione oltre 180 e pesa 6 kB o più.
+ */
+function looksEmpty(img, bytes) {
+  try {
+    const n = 24;
+    const c = document.createElement('canvas');
+    c.width = n; c.height = n;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, n, n);
+    const px = ctx.getImageData(0, 0, n, n).data;
+    let min = 255, max = 0, sum = 0, sr = 0, sg = 0, sb = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      const v = (px[i] + px[i + 1] + px[i + 2]) / 3;
+      min = Math.min(min, v); max = Math.max(max, v); sum += v;
+      sr += px[i]; sg += px[i + 1]; sb += px[i + 2];
+    }
+    const q = px.length / 4;
+    const media = sum / q, esc = max - min;
+    const r = sr / q, g = sg / q, bl = sb / q;
+    const neutra = Math.max(Math.abs(r - g), Math.abs(g - bl), Math.abs(r - bl)) <= 12;
+    if (neutra && media >= 185 && esc <= 55) return true;
+    if (neutra && bytes && bytes <= 3000 && esc <= 30) return true;
+    return false;
+  } catch (e) { return false; }     // immagine non leggibile: meglio tenerla
+}
+
+/** carica una tessera e dice se è utilizzabile */
+async function fetchTile(url) {
+  try {
+    const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+    if (!res.ok) return { ok: false };
+    const blob = await res.blob();
+    if (!/^image\//.test(blob.type || '')) return { ok: false };
+    const src = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      await new Promise((ok, no) => { img.onload = ok; img.onerror = no; img.src = src; });
+      return { ok: !looksEmpty(img, blob.size) };
+    } finally { URL.revokeObjectURL(src); }
+  } catch (e) { return { ok: false, rete: true }; }
+}
+
+/**
+ * Tiene aggiornato il livello massimo utilizzabile nella zona: prima
+ * verifica quello di partenza (scendendo se anche lì non ci sono foto), poi
+ * sale di uno alla volta finché serve dettaglio e le tessere esistono.
+ * Ogni passo riuscito chiede un ridisegno.
+ */
+function ensureCap(bm, wanted, opts) {
+  if (typeof fetch === 'undefined' || typeof Image === 'undefined') return;
+  const prov = provider(bm.provider);
+  const k = regionKey(bm);
+  if (probing.has(k)) return;
+  const cur = capEntry(bm);
+  let target;
+  if (!cur.verified) target = cur.cap;                                  // controlla il livello di partenza
+  else if (!cur.locked && wanted > cur.cap && cur.cap < prov.maxZoom) target = cur.cap + 1;
+  else return;
+
+  probing.add(k);
+  const blk = Math.max(1, prov.block || 1);
+  const tx = Math.floor(lonToPx(bm.lon, target) / TILE), ty = Math.floor(latToPx(bm.lat, target) / TILE);
+  const url = prov.url(tx - (tx % blk), ty - (ty % blk), target, { ...opts, block: blk });
+  fetchTile(url).then((res) => {
+    probing.delete(k);
+    if (res.ok) {
+      zoomCaps.set(k, { cap: target, verified: true, locked: false, fails: 0 });
+    } else if (target <= cur.cap) {
+      // nemmeno il livello di partenza ha foto: si scende e si riprova
+      zoomCaps.set(k, { cap: Math.max(12, target - 1), verified: false, locked: false, fails: 0 });
+    } else {
+      const fails = (cur.fails || 0) + (res.rete ? 1 : 2);   // problema di rete o foto che non ci sono
+      zoomCaps.set(k, { ...cur, locked: true, fails, retryAt: Date.now() + 20000 });
+      return;                                                // niente ridisegno: non cambia nulla
+    }
+    if (typeof opts.onUpdate === 'function') opts.onUpdate();
+  });
+}
 
 /* ------------------------------------------------- proiezione Web Mercator */
 
@@ -126,11 +275,15 @@ export function latLonToWorld(bm, lat, lon) {
 export function tileLayer(bm, view, W, H, opts = {}) {
   const prov = provider(bm.provider);
   if (prov.needsKey && !opts.apiKey) return null;
+  if (prov.needsUrl && !validCustomUrl(opts.customUrl)) return null;
 
   // livello di dettaglio: una tessera ≈ un pixel dello schermo. Per la
   // stampa serve più definizione di quella che basta a video: `zoomBias`.
   const ideal = Math.log2(156543.03392804097 * Math.cos(bm.lat * D2R) * view.scale) + (opts.zoomBias || 0);
-  const zoom = Math.max(1, Math.min(prov.maxZoom, Math.round(ideal)));
+  const wanted = Math.max(1, Math.round(ideal));          // quello che servirebbe
+  // non si sale oltre i livelli verificati: meglio sgranato che assente
+  const zoom = Math.max(1, Math.min(wanted, prov.maxZoom, zoomCap(bm)));
+  if (opts.probe !== false) ensureCap(bm, wanted, opts);
   const mpp = metersPerPixel(bm.lat, zoom);
   const p0 = { x: lonToPx(bm.lon, zoom), y: latToPx(bm.lat, zoom) };
 
@@ -148,7 +301,11 @@ export function tileLayer(bm, view, W, H, opts = {}) {
   const bx0 = Math.floor(Math.min(...xs) / step), bx1 = Math.floor(Math.max(...xs) / step);
   const by0 = Math.floor(Math.min(...ys) / step), by1 = Math.floor(Math.max(...ys) / step);
   const count = (bx1 - bx0 + 1) * (by1 - by0 + 1);
-  const out = { zoom, mpp, tiles: [], rotation: bm.rotation || 0, credit: prov.credit, block: blk };
+  const out = {
+    zoom, mpp, tiles: [], rotation: bm.rotation || 0, credit: prov.credit, block: blk,
+    wanted,                                   // livello che servirebbe
+    upscaled: wanted > zoom,                  // foto ingrandita oltre il suo dettaglio
+  };
   if (count <= 0 || count > (opts.maxTiles || 240)) { out.tooMany = count > 0; return out; }
 
   const max = 1 << zoom;                       // tessere per lato a questo livello

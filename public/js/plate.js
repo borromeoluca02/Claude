@@ -230,7 +230,9 @@ export function platePlan(project, analysis, opts = {}) {
   const bm = project.basemap;
   if (bm && bm.on && bm.onPlate) {
     const view = { scale: 1000 / scale, cx, cy };
-    const L = tileLayer(bm, view, ox * 2, oy * 2, { apiKey: opts.mapsKey, rect: lay.draw, maxTiles: 200, zoomBias: 3 });
+    const L = tileLayer(bm, view, ox * 2, oy * 2, {
+      apiKey: opts.mapsKey, customUrl: bm.customUrl, rect: lay.draw, maxTiles: 200, zoomBias: 3, probe: false,
+    });
     if (L && L.tiles.length) {
       // sopra la foto le campiture devono lasciar vedere il terreno
       o += '<style>svg.plate .area{fill:none} svg.plate .lane{fill:#eaf0f6;fill-opacity:.55}</style>';

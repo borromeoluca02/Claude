@@ -173,6 +173,7 @@ export function createProject(opts = {}) {
       opacity: 0.9,
       locked: false,
       onPlate: false,
+      customUrl: '',                 // altro servizio a tessere: .../{z}/{x}/{y}.png
     },
     plate: {
       sheet: 'A3', orientation: 'landscape', scale: 'auto',
@@ -231,7 +232,8 @@ function normalizeBasemap(def, raw) {
   b.lon = Math.max(-180, Math.min(180, num(b.lon, def.lon)));
   b.rotation = ((num(b.rotation, 0) % 360) + 360) % 360;
   b.opacity = Math.max(0.1, Math.min(1, num(b.opacity, 0.9)));
-  b.provider = ['esri', 'google', 'googleroad'].includes(b.provider) ? b.provider : 'esri';
+  b.provider = ['esri', 'google', 'googleroad', 'custom'].includes(b.provider) ? b.provider : 'esri';
+  b.customUrl = typeof b.customUrl === 'string' ? b.customUrl.slice(0, 500) : '';
   b.on = !!b.on; b.locked = !!b.locked; b.onPlate = !!b.onPlate;
   return b;
 }

@@ -111,13 +111,15 @@ export function render(state) {
 function basemapLayer(state) {
   const bm = state.project.basemap;
   if (!bm || !bm.on) return '';
-  const L = tileLayer(bm, state.view, state.W, state.H, { apiKey: state.mapsKey, maxTiles: 300 });
+  const L = tileLayer(bm, state.view, state.W, state.H, {
+    apiKey: state.mapsKey, customUrl: bm.customUrl, maxTiles: 300, onUpdate: state.onMapUpdate,
+  });
   if (!L || !L.tiles.length) return '';
   const a = toScreen(state.view, state.W, state.H, { x: 0, y: 0 });
   // la rotazione del disegno (y in su) è oraria sullo schermo: segno invertito
   let s = `<g class="basemap" opacity="${(bm.opacity || 0.9).toFixed(2)}" transform="rotate(${(-L.rotation).toFixed(3)} ${a.x.toFixed(1)} ${a.y.toFixed(1)})">`;
   for (const t of L.tiles) {
-    s += `<image href="${esc(t.url)}" xlink:href="${esc(t.url)}" crossorigin="anonymous" preserveAspectRatio="none"`
+    s += `<image href="${esc(t.url)}" xlink:href="${esc(t.url)}" crossorigin="anonymous" preserveAspectRatio="none" data-z="${L.zoom}"`
       + ` x="${t.x.toFixed(2)}" y="${t.y.toFixed(2)}" width="${t.w.toFixed(2)}" height="${t.h.toFixed(2)}"/>`;
   }
   return s + '</g>';
@@ -127,7 +129,7 @@ function basemapLayer(state) {
 export function basemapCredit(state) {
   const bm = state.project && state.project.basemap;
   if (!bm || !bm.on) return '';
-  const L = tileLayer(bm, state.view, state.W, state.H, { apiKey: state.mapsKey, maxTiles: 300 });
+  const L = tileLayer(bm, state.view, state.W, state.H, { apiKey: state.mapsKey, customUrl: bm.customUrl, maxTiles: 300, probe: false });
   return L ? L.credit : '';
 }
 
@@ -621,10 +623,13 @@ function scaleBar(state) {
 function creditText(state) {
   const bm = state.project.basemap;
   if (!bm || !bm.on) return '';
-  const L = tileLayer(bm, state.view, state.W, state.H, { apiKey: state.mapsKey, maxTiles: 300 });
+  const L = tileLayer(bm, state.view, state.W, state.H, { apiKey: state.mapsKey, customUrl: bm.customUrl, maxTiles: 300, probe: false });
   if (!L || !L.tiles.length) return '';
   const nord = bm.rotation ? ` · nord ruotato di ${fmt(bm.rotation, 0)}°` : '';
-  return `<text class="lbl mapCredit" x="${state.W - 14}" y="20" text-anchor="end">${esc(L.credit + nord)}</text>`;
+  // quando si ingrandisce oltre il dettaglio delle foto conviene dirlo,
+  // altrimenti la sgranatura sembra un difetto del disegno
+  const sgranata = L.upscaled ? ' · foto ingrandita: dettaglio massimo disponibile qui' : '';
+  return `<text class="lbl mapCredit" x="${state.W - 14}" y="20" text-anchor="end">${esc(L.credit + nord + sgranata)}</text>`;
 }
 
 /* ------------------------------------------------- miniatura (candidati) */

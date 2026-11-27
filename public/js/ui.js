@@ -5,7 +5,7 @@ import * as G from './geometry.js';
 import { STRUCTURE_LIBRARY, GROUP_LABELS } from './model.js';
 import { ROLLER, SKATE, CATEGORIES, categoryInfo, REG_SOURCE } from './regulation.js';
 import { fmt, fmtM, thumbSVG, raceSummary } from './render.js';
-import { PROVIDERS, provider, worldToLatLon, formatLatLon } from './basemap.js';
+import { PROVIDERS, provider, worldToLatLon, formatLatLon, validCustomUrl } from './basemap.js';
 import { buildPlateSet, autoScale, sheetSize, SHEETS, SCALES } from './plate.js';
 
 /* ------------------------------------------------- lettura/scrittura path */
@@ -200,6 +200,10 @@ export function basemapSection(state) {
         <button class="segb${state.mapDrag === 'rotate' ? ' on' : ''}" data-act="map.drag:rotate">Ruota</button>
       </div>` : ''}
     </div>
+    ${bm.provider === 'custom' ? `<div class="flds">
+      ${txt('Indirizzo delle tessere', 'basemap.customUrl', bm.customUrl, { ph: 'https://…/{z}/{x}/{y}.png' })}
+    </div>
+    <p class="hint${validCustomUrl(bm.customUrl) ? '' : ' bad'}">Serve un indirizzo con i segnaposto <b>{z}</b>, <b>{x}</b> e <b>{y}</b> (per esempio le ortofoto di un geoportale regionale, spesso più fitte del satellite gratuito). Se il servizio numera le righe al contrario usa <b>{-y}</b>.</p>` : ''}
     ${needKey ? `<p class="hint bad"><b>Serve la tua chiave.</b> Le immagini di Google si pagano a consumo: crea una chiave della <b>Maps Static API</b> nella console Google Cloud e incollala qui sotto. Resta solo su questo browser.</p>` : ''}
     <div class="flds">
       ${txt('Chiave Maps Static API (facoltativa)', 'ui.mapsKey', state.mapsKey, { ph: 'AIza…' })}
@@ -845,6 +849,7 @@ export function flyoutHTML(state) {
           ${sel('Immagini', 'basemap.provider', bm.provider, Object.values(PROVIDERS).map((p) => [p.key, p.name]))}
           ${num('Rotazione', 'basemap.rotation', bm.rotation, { step: 1, unit: '°', min: 0, max: 360 })}
         </div>
+        ${bm.provider === 'custom' ? `<div class="flds">${txt('Indirizzo delle tessere', 'basemap.customUrl', bm.customUrl, { ph: 'https://…/{z}/{x}/{y}.png' })}</div>` : ''}
         ${rng('Trasparenza', 'basemap.opacity', bm.opacity, { min: 0.1, max: 1, step: 0.05 })}
         ${needKey ? `<div class="flds">${txt('Chiave Maps Static API', 'ui.mapsKey', state.mapsKey, { ph: 'AIza…' })}</div>
           <p class="hint bad">Le immagini di Google si pagano a consumo e richiedono una chiave tua. Senza chiave resta attivo lo sfondo satellitare gratuito.</p>` : ''}
